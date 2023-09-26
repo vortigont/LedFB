@@ -678,7 +678,7 @@ public:
     void fillScreen(CRGB color);
 
     // Color conversion
-    static CRGB color16toCRGB(uint16_t c){ return CRGB(c>>11 & 0xf8, c>>5 & 0xfc, c<<3); }
+    static CRGB color16toCRGB(uint16_t c){ return CRGB((c>>11 & 0x1f) * 527 + 23 >> 6, (c>>5 & 0xfc) * 259 + 33 >> 6, (c&0x1f) * 527 + 23 >> 6); }
     static uint16_t colorCRGBto16(CRGB c){ return c.r >> 3 << 11 | c.g >> 2 << 5 | c.b >> 3; }
 
 
