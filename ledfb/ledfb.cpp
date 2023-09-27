@@ -92,6 +92,23 @@ void CLedCDB::rebind(CLedCDB &rhs){
     rhs._reset_cled();
 }
 
+ESP32HUB75_OverlayEngine::ESP32HUB75_OverlayEngine(const HUB75_I2S_CFG &config) : canvas(new HUB75Panel(config)) {
+    canvas->MatrixPanel_I2S_DMA::begin();
+}
+
+std::shared_ptr<PixelDataBuffer<CRGB>> ESP32HUB75_OverlayEngine::getOverlay(){
+    auto p = overlay.lock();
+    if (!p){
+        // no overlay exist at the moment
+        p = std::make_shared<PixelDataBuffer<CRGB>>( PixelDataBuffer<CRGB>(canvas->size()) );
+        overlay = p;
+    }
+    return p;
+}
+
+void ESP32HUB75_OverlayEngine::show(){
+    canvas->show();
+}
 
 // *** Topology mapping classes implementation ***
 
@@ -139,4 +156,28 @@ void LedFB_GFX::drawPixel(int16_t x, int16_t y, CRGB color) {
 
 void LedFB_GFX::fillScreen(CRGB color) {
     std::visit( Overload{ [this, &color](const auto& variant_item) { _fillScreenCRGB(variant_item.get(), color); }, }, _fb);
+}
+
+
+//  *** HUB75 Panel implementation ***
+void HUB75Panel::show(){
+    uint16_t w{getCfg().mx_width}, h{getCfg().mx_width};
+    for (size_t i = 0; i != PixelDataBuffer<CRGB>::fb.size(); ++i){
+        updateMatrixDMABuffer( i%w, i/w, PixelDataBuffer<CRGB>::fb.at(i).r, PixelDataBuffer<CRGB>::fb.at(i).g, PixelDataBuffer<CRGB>::fb.at(i).b);
+    }
+}
+
+void HUB75Panel::clear(){
+    
+}
+
+void ESP32HUB75_OverlayEngine::clear(){
+    if (!canvas) return;
+    canvas->clear();
+    if (backbuff){
+        // release BackBuffer, it will be recreated if required
+        backbuff.release();
+    }
+    auto ovr = overlay.lock();
+    if (ovr) ovr->clear();          // clear overlay
 }

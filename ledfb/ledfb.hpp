@@ -11,6 +11,7 @@
 #include <variant>
 #include "w2812-rmt.hpp"
 #include <Adafruit_GFX.h>
+#include "ESP32-HUB75-MatrixPanel-I2S-DMA.h"
 
 
 // Out-of-bound CRGB placeholder - stub pixel that is mapped to either nonexistent buffer access or blackholed CLedController mapping
@@ -141,7 +142,7 @@ public:
      * @brief clear buffer to black
      * 
      */
-    void clear();
+    virtual void clear();
 
     // stub pixel that is mapped to either nonexistent buffer access or blackholed CLedController mapping
     static COLOR_TYPE stub_pixel;
@@ -247,6 +248,24 @@ public:
 };
 
 
+class HUB75Panel : public MatrixPanel_I2S_DMA, public PixelDataBuffer<CRGB> {
+
+public:
+    HUB75Panel(const HUB75_I2S_CFG &config) : MatrixPanel_I2S_DMA(config), PixelDataBuffer(config.mx_width*config.mx_height){}
+
+    /**
+     * @brief write data buffer content to HUB75 DMA buffer
+     * 
+     */
+    void show();
+
+    /**
+     * @brief HUB75Panel is not supported (yet)
+     */
+    bool resize(size_t s) override { return false; };
+
+    void clear() override;
+};
 
 // coordinate transformation callback prototype
 using transpose_t = std::function<size_t(unsigned w, unsigned h, unsigned x, unsigned y)>;
@@ -600,7 +619,7 @@ public:
      * @brief wipe buffers and draw a blank screen
      * 
      */
-    void clear();
+    void clear() override;
 
 private:
     /**
@@ -616,6 +635,58 @@ private:
      */
     void _switch_to_bb();
 };
+
+class ESP32HUB75_OverlayEngine : public OverlayEngine {
+
+    std::shared_ptr<HUB75Panel>  canvas;      // canvas buffer where background data is stored
+    std::unique_ptr<PixelDataBuffer<CRGB>>  backbuff;    // back buffer, where we will mix data with overlay before sending to LEDs
+    std::weak_ptr<PixelDataBuffer<CRGB>>    overlay;     // overlay buffer weak pointer
+
+public:
+    /**
+     * @brief Construct a new Overlay Engine object
+     * 
+     * @param gpio - gpio to bind ESP32 RMT engine
+     */
+    ESP32HUB75_OverlayEngine(const HUB75_I2S_CFG &config);
+
+    /**
+     * @brief Construct a new Overlay Engine object
+     * 
+     */
+    ESP32HUB75_OverlayEngine(std::shared_ptr<HUB75Panel> canvas);
+
+    std::shared_ptr<PixelDataBuffer<CRGB>> getCanvas() override { return canvas; }
+
+    /**
+     * @brief Get a pointer to Overlay buffer
+     * Note: consumer MUST release a pointer once overlay operations is no longer needed
+     * 
+     * @return std::shared_ptr<PixelDataBuffer<CRGB>> 
+     */
+    std::shared_ptr<PixelDataBuffer<CRGB>> getOverlay() override;
+
+    /**
+     * @brief show buffer content on display
+     * it will draw a canvas content (or render an overlay over it if necessary)
+     * 
+     */
+    void show() override;
+
+    /**
+     * @brief wipe buffers and draw a blank screen
+     * 
+     */
+    void clear() override;
+
+private:
+};
+
+
+
+
+
+
 
 
 // overload pattern and deduction guide. Lambdas provide call operator
@@ -734,7 +805,7 @@ ESP32RMTOverlayEngine<RGB_ORDER>::ESP32RMTOverlayEngine(int gpio, std::shared_pt
     wsstrip = new(std::nothrow) ESP32RMT_WS2812B<RGB_ORDER>(gpio);
     if (wsstrip && canvas){
         // attach buffer to RMT engine
-        cled = &FastLED.addLeds(wsstrip, canvas->data(), canvas->size());
+        cled = &FastLED.addLeds(wsstrip, canvas->data().data(), canvas->size());
         // hook framebuffer to contoller
         canvas->bind(cled);
         show();
