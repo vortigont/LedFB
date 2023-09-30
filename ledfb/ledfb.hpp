@@ -119,24 +119,10 @@ public:
     /***    color operations      ***/
 
     /**
-     * @brief apply FastLED fadeToBlackBy() func to buffer
-     * 
-     * @param v 
-     */
-    void fade(uint8_t v){ fadeToBlackBy(data().data(), size(), v); }
-
-    /**
-     * @brief apply FastLED nscale8() func to buffer
-     * i.e.dim whole buffer to black
-     * @param v 
-     */
-    void dim(uint8_t v){ nscale8(data().data(), size(), v); }
-
-    /**
      * @brief fill the buffer with solid color
      * 
      */
-    void fill(COLOR_TYPE color);
+    virtual void fill(COLOR_TYPE color);
 
     /**
      * @brief clear buffer to black
@@ -245,13 +231,22 @@ public:
      * @param s new number of pixels
      */
     bool resize(size_t s) override;
+
+    /**
+     * @brief display buffer data to LED strip
+     * 
+     */
+    void show(){ FastLED.show(); }
 };
 
 
-class HUB75Panel : public MatrixPanel_I2S_DMA, public PixelDataBuffer<CRGB> {
+class HUB75PanelDB : public PixelDataBuffer<CRGB> {
 
 public:
-    HUB75Panel(const HUB75_I2S_CFG &config) : MatrixPanel_I2S_DMA(config), PixelDataBuffer(config.mx_width*config.mx_height){}
+    // I2S DMA buffer object
+    MatrixPanel_I2S_DMA hub75;
+
+    HUB75PanelDB(const HUB75_I2S_CFG &config) : PixelDataBuffer(config.mx_width*config.mx_height), hub75(config) { hub75.begin(); }
 
     /**
      * @brief write data buffer content to HUB75 DMA buffer
@@ -266,6 +261,8 @@ public:
 
     void clear() override;
 };
+
+
 
 // coordinate transformation callback prototype
 using transpose_t = std::function<size_t(unsigned w, unsigned h, unsigned x, unsigned y)>;
@@ -356,18 +353,6 @@ public:
      */
     void setRemapFunction(transpose_t mapper){ _xymap = mapper; };
 
-    /**
-     * @brief Transpose pixel 2D coordinates (x,y) into framebuffer's array index
-     * 0's index is at top-left corner, X axis goes to the 'right', Y axis goes 'down'
-     * it calculates array index based on matrix orientation and configuration
-     * no checking performed for supplied coordinates to be out of bound of pixel buffer!
-     * for signed negative arguments the behaviour is undefined
-     * @param x 
-     * @param y 
-     * @return size_t 
-     */
-    //size_t transpose(unsigned x, unsigned y) const { return _xymap(_w, _h, x, y); }
-
 
     // DATA BUFFER OPERATIONS
 
@@ -399,12 +384,8 @@ public:
      */
     COLOR_TYPE& at(size_t idx){ return buffer->at(idx); };
 
-    // mimic Adafruit's low-level methods
-    //virtual void drawPixel(int16_t x, int16_t y, uint16_t color){ at(x, y) = color16toCRGB(color); }
-    //virtual void drawPixel(int16_t x, int16_t y, CRGB color){ at(x, y) = color; }
-
     /*
-        iterators
+        data buffer iterators
         TODO: need proper declaration for this
     */
     typename std::vector<COLOR_TYPE>::iterator begin(){ return buffer->begin(); };
@@ -418,14 +399,14 @@ public:
      * 
      * @param v 
      */
-    virtual void fade(uint8_t v){ buffer->fade(v); }
+    void fade(uint8_t v);
 
     /**
      * @brief apply FastLED nscale8() func to buffer
-     * i.e.dim whole buffer to black
+     * i.e. dim whole buffer to black
      * @param v 
      */
-    void dim(uint8_t v){ buffer->dim(v); }
+    void dim(uint8_t v);
 
     /**
      * @brief fill the buffer with solid color
@@ -500,11 +481,11 @@ public:
  * @brief abstract overlay engine
  * it works as a renderer for canvas, creating/mixing overlay/back buffer with canvas
  */
-class OverlayEngine {
+class DisplayEngine {
 
 public:
     // virtual d-tor
-    virtual ~OverlayEngine(){};
+    virtual ~DisplayEngine(){};
 
     /**
      * @brief Get a reference to canvas buffer
@@ -536,6 +517,15 @@ public:
      */
     virtual void clear();
 
+    /**
+     * @brief change display brightness
+     * if supported by engine
+     * 
+     * @param b - target brightness
+     * @return uint8_t - current brightness level
+     */
+    virtual uint8_t brightness(uint8_t b){ return 0; };
+
 protected:
     CRGB _transparent_color = CRGB::Black;
 
@@ -549,13 +539,13 @@ protected:
 
 
 /**
- * @brief Overlay engine based on ESP32 RMT backend for ws2818 LED strips  
+ * @brief Dispaly engine based on ESP32 RMT backend for ws2818 LED strips  
  * 
  * @tparam RGB_ORDER 
  */
 template<EOrder RGB_ORDER = RGB>
-class ESP32RMTOverlayEngine : public OverlayEngine {
-
+class ESP32RMTDisplayEngine : public DisplayEngine {
+protected:
     std::shared_ptr<CLedCDB>  canvas;      // canvas buffer where background data is stored
     std::unique_ptr<CLedCDB>  backbuff;    // back buffer, where we will mix data with overlay before sending to LEDs
     std::weak_ptr<CLedCDB>    overlay;     // overlay buffer weak pointer
@@ -571,7 +561,7 @@ public:
      * 
      * @param gpio - gpio to bind ESP32 RMT engine
      */
-    ESP32RMTOverlayEngine(int gpio);
+    ESP32RMTDisplayEngine(int gpio);
 
     /**
      * @brief Construct a new Overlay Engine object
@@ -579,7 +569,7 @@ public:
      * @param gpio - gpio to bind
      * @param buffsize - CLED buffer object
      */
-    ESP32RMTOverlayEngine(int gpio, std::shared_ptr<CLedCDB> buffer);
+    ESP32RMTDisplayEngine(int gpio, std::shared_ptr<CLedCDB> buffer);
 
     /**
      * @brief Construct a new Overlay Engine object
@@ -587,7 +577,7 @@ public:
      * @param gpio - gpio to bind
      * @param buffsize - desired LED buffer size
      */
-    ESP32RMTOverlayEngine(int gpio, size_t buffsize) : ESP32RMTOverlayEngine<RGB_ORDER>(gpio, std::make_shared<CLedCDB>(buffsize)) {};
+    ESP32RMTDisplayEngine(int gpio, size_t buffsize) : ESP32RMTDisplayEngine<RGB_ORDER>(gpio, std::make_shared<CLedCDB>(buffsize)) {};
 
     /**
      * @brief take a buffer pointer and attach it to ESP32 RMT engine
@@ -621,6 +611,15 @@ public:
      */
     void clear() override;
 
+    /**
+     * @brief change display brightness
+     * if supported by engine
+     * 
+     * @param b - target brightness
+     * @return uint8_t - current brightness level
+     */
+    uint8_t brightness(uint8_t b) override;
+
 private:
     /**
      * @brief apply overlay to canvas
@@ -636,10 +635,13 @@ private:
     void _switch_to_bb();
 };
 
-class ESP32HUB75_OverlayEngine : public OverlayEngine {
-
-    std::shared_ptr<HUB75Panel>  canvas;      // canvas buffer where background data is stored
-    std::unique_ptr<PixelDataBuffer<CRGB>>  backbuff;    // back buffer, where we will mix data with overlay before sending to LEDs
+/**
+ * @brief Display engine based in HUB75 RGB panel
+ * 
+ */
+class ESP32HUB75_DisplayEngine : public DisplayEngine {
+protected:
+    std::shared_ptr<HUB75PanelDB>  canvas;      // canvas buffer where background data is stored
     std::weak_ptr<PixelDataBuffer<CRGB>>    overlay;     // overlay buffer weak pointer
 
 public:
@@ -648,13 +650,13 @@ public:
      * 
      * @param gpio - gpio to bind ESP32 RMT engine
      */
-    ESP32HUB75_OverlayEngine(const HUB75_I2S_CFG &config);
+    ESP32HUB75_DisplayEngine(const HUB75_I2S_CFG &config);
 
     /**
      * @brief Construct a new Overlay Engine object
      * 
      */
-    ESP32HUB75_OverlayEngine(std::shared_ptr<HUB75Panel> canvas);
+    ESP32HUB75_DisplayEngine(std::shared_ptr<HUB75PanelDB> canvas);
 
     std::shared_ptr<PixelDataBuffer<CRGB>> getCanvas() override { return canvas; }
 
@@ -679,7 +681,15 @@ public:
      */
     void clear() override;
 
-private:
+    /**
+     * @brief change display brightness
+     * if supported by engine
+     * 
+     * @param b - target brightness
+     * @return uint8_t - current brightness level
+     */
+    uint8_t brightness(uint8_t b) override { canvas->hub75.setBrightness(b); return b; };
+
 };
 
 
@@ -796,12 +806,12 @@ bool PixelDataBuffer<COLOR_TYPE>::resize(size_t s){
 };
 
 template<EOrder RGB_ORDER>
-ESP32RMTOverlayEngine<RGB_ORDER>::ESP32RMTOverlayEngine(int gpio){
+ESP32RMTDisplayEngine<RGB_ORDER>::ESP32RMTDisplayEngine(int gpio){
     wsstrip = new(std::nothrow) ESP32RMT_WS2812B<RGB_ORDER>(gpio);
 }
 
 template<EOrder RGB_ORDER>
-ESP32RMTOverlayEngine<RGB_ORDER>::ESP32RMTOverlayEngine(int gpio, std::shared_ptr<CLedCDB> buffer) : canvas(buffer) {
+ESP32RMTDisplayEngine<RGB_ORDER>::ESP32RMTDisplayEngine(int gpio, std::shared_ptr<CLedCDB> buffer) : canvas(buffer) {
     wsstrip = new(std::nothrow) ESP32RMT_WS2812B<RGB_ORDER>(gpio);
     if (wsstrip && canvas){
         // attach buffer to RMT engine
@@ -813,7 +823,7 @@ ESP32RMTOverlayEngine<RGB_ORDER>::ESP32RMTOverlayEngine(int gpio, std::shared_pt
 };
 
 template<EOrder RGB_ORDER>
-bool ESP32RMTOverlayEngine<RGB_ORDER>::attachCanvas(std::shared_ptr<CLedCDB> &fb){
+bool ESP32RMTDisplayEngine<RGB_ORDER>::attachCanvas(std::shared_ptr<CLedCDB> &fb){
     if (cled) return false; // this function is not idempotent, so refuse to mess with existing controller
 
     // share data buffer instance
@@ -832,7 +842,7 @@ bool ESP32RMTOverlayEngine<RGB_ORDER>::attachCanvas(std::shared_ptr<CLedCDB> &fb
 }
 
 template<EOrder RGB_ORDER>
-void ESP32RMTOverlayEngine<RGB_ORDER>::show(){
+void ESP32RMTDisplayEngine<RGB_ORDER>::show(){
     if (!overlay.expired() && _canvas_protect && !backbuff)    // check if I need to switch to back buff due to canvas persistency and overlay data present 
         _switch_to_bb();
 
@@ -848,7 +858,7 @@ void ESP32RMTOverlayEngine<RGB_ORDER>::show(){
 };
 
 template<EOrder RGB_ORDER>
-void ESP32RMTOverlayEngine<RGB_ORDER>::clear(){
+void ESP32RMTDisplayEngine<RGB_ORDER>::clear(){
     if (!canvas) return;
     canvas->clear();
     if (backbuff){
@@ -862,7 +872,7 @@ void ESP32RMTOverlayEngine<RGB_ORDER>::clear(){
 }
 
 template<EOrder RGB_ORDER>
-std::shared_ptr<PixelDataBuffer<CRGB>> ESP32RMTOverlayEngine<RGB_ORDER>::getOverlay(){
+std::shared_ptr<PixelDataBuffer<CRGB>> ESP32RMTDisplayEngine<RGB_ORDER>::getOverlay(){
     auto p = overlay.lock();
     if (!p){
         // no overlay exist at the moment
@@ -873,7 +883,7 @@ std::shared_ptr<PixelDataBuffer<CRGB>> ESP32RMTOverlayEngine<RGB_ORDER>::getOver
 }
 
 template<EOrder RGB_ORDER>
-void ESP32RMTOverlayEngine<RGB_ORDER>::_ovr_overlap(){
+void ESP32RMTDisplayEngine<RGB_ORDER>::_ovr_overlap(){
     auto ovr = overlay.lock();
     if (canvas->size() != ovr->size()) return;  // a safe-check for buffer sizes
 
@@ -898,10 +908,16 @@ void ESP32RMTOverlayEngine<RGB_ORDER>::_ovr_overlap(){
 }
 
 template<EOrder RGB_ORDER>
-void ESP32RMTOverlayEngine<RGB_ORDER>::_switch_to_bb(){
+void ESP32RMTDisplayEngine<RGB_ORDER>::_switch_to_bb(){
     //LOG(println, "Switch to BB");
     backbuff = std::make_unique<CLedCDB>(canvas->size());
     backbuff->rebind(*canvas);    // switch backend binding
+}
+
+template<EOrder RGB_ORDER>
+uint8_t ESP32RMTDisplayEngine<RGB_ORDER>::brightness(uint8_t b){
+    FastLED.setBrightness(b);
+    return FastLED.getBrightness();
 }
 
 
@@ -939,3 +955,24 @@ bool LedFB<COLOR_TYPE>::resize(uint16_t w, uint16_t h){
     return false;
 }
 
+template <class COLOR_TYPE>
+void LedFB<COLOR_TYPE>::fade(uint8_t v){
+    // if buffer is of CRGB type
+    if constexpr (std::is_same_v<CRGB, COLOR_TYPE>){
+        for (auto i = buffer->begin(); i != buffer->end(); ++i)
+            i->nscale8(255 - v);
+    }
+
+    // todo: implement fade for other color types
+}
+
+template <class COLOR_TYPE>
+void LedFB<COLOR_TYPE>::dim(uint8_t v){
+    // if buffer is of CRGB type
+    if constexpr (std::is_same_v<CRGB, COLOR_TYPE>){
+        for (auto i = buffer->begin(); i != buffer->end(); ++i)
+            i->nscale8(255);
+    }
+
+    // todo: implement fade for other color types
+}

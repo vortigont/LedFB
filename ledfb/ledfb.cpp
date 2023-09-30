@@ -92,11 +92,46 @@ void CLedCDB::rebind(CLedCDB &rhs){
     rhs._reset_cled();
 }
 
-ESP32HUB75_OverlayEngine::ESP32HUB75_OverlayEngine(const HUB75_I2S_CFG &config) : canvas(new HUB75Panel(config)) {
-    canvas->MatrixPanel_I2S_DMA::begin();
+//  *** HUB75 Panel implementation ***
+ESP32HUB75_DisplayEngine::ESP32HUB75_DisplayEngine(const HUB75_I2S_CFG &config) : canvas(new HUB75PanelDB(config)) {
+    canvas->hub75.begin();
 }
 
-std::shared_ptr<PixelDataBuffer<CRGB>> ESP32HUB75_OverlayEngine::getOverlay(){
+void HUB75PanelDB::show(){
+    for (size_t i = 0; i != PixelDataBuffer<CRGB>::fb.size(); ++i){
+        hub75.drawPixelRGB888( i % hub75.getCfg().mx_width, i / hub75.getCfg().mx_width, PixelDataBuffer<CRGB>::fb.at(i).r, PixelDataBuffer<CRGB>::fb.at(i).g, PixelDataBuffer<CRGB>::fb.at(i).b);
+    }
+}
+
+void HUB75PanelDB::clear(){
+    fb.clear();
+    hub75.clearScreen();
+}
+
+void ESP32HUB75_DisplayEngine::clear(){
+    if (!canvas) return;
+    canvas->clear();
+    auto ovr = overlay.lock();
+    if (ovr) ovr->clear();          // clear overlay
+}
+
+void ESP32HUB75_DisplayEngine::show(){
+    if (overlay.expired())
+        return canvas->show();
+
+    // need to apply overlay on canvas
+    auto ovr = overlay.lock();
+    if (canvas->size() != ovr->size()) return;  // a safe-check for buffer sizes
+
+    // draw non key-color pixels from canvas, otherwise from canvas
+    for (size_t i=0; i != canvas->size(); ++i ){
+        CRGB c = ovr->at(i) == _transparent_color ? canvas->at(i) : ovr->at(i);
+
+        canvas->hub75.drawPixelRGB888( i % canvas->hub75.getCfg().mx_width, i / canvas->hub75.getCfg().mx_width, c.r, c.g, c.b);
+    }
+}
+
+std::shared_ptr<PixelDataBuffer<CRGB>> ESP32HUB75_DisplayEngine::getOverlay(){
     auto p = overlay.lock();
     if (!p){
         // no overlay exist at the moment
@@ -106,9 +141,8 @@ std::shared_ptr<PixelDataBuffer<CRGB>> ESP32HUB75_OverlayEngine::getOverlay(){
     return p;
 }
 
-void ESP32HUB75_OverlayEngine::show(){
-    canvas->show();
-}
+
+
 
 // *** Topology mapping classes implementation ***
 
@@ -129,8 +163,6 @@ size_t LedStripe::transpose(unsigned w, unsigned h, unsigned x, unsigned y) cons
         return yy * w + xx;
     }
 }
-
-
 
 void LedFB_GFX::drawPixel(int16_t x, int16_t y, uint16_t color) {
     std::visit(
@@ -158,26 +190,3 @@ void LedFB_GFX::fillScreen(CRGB color) {
     std::visit( Overload{ [this, &color](const auto& variant_item) { _fillScreenCRGB(variant_item.get(), color); }, }, _fb);
 }
 
-
-//  *** HUB75 Panel implementation ***
-void HUB75Panel::show(){
-    uint16_t w{getCfg().mx_width}, h{getCfg().mx_width};
-    for (size_t i = 0; i != PixelDataBuffer<CRGB>::fb.size(); ++i){
-        updateMatrixDMABuffer( i%w, i/w, PixelDataBuffer<CRGB>::fb.at(i).r, PixelDataBuffer<CRGB>::fb.at(i).g, PixelDataBuffer<CRGB>::fb.at(i).b);
-    }
-}
-
-void HUB75Panel::clear(){
-    
-}
-
-void ESP32HUB75_OverlayEngine::clear(){
-    if (!canvas) return;
-    canvas->clear();
-    if (backbuff){
-        // release BackBuffer, it will be recreated if required
-        backbuff.release();
-    }
-    auto ovr = overlay.lock();
-    if (ovr) ovr->clear();          // clear overlay
-}
