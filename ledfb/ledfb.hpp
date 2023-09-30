@@ -330,7 +330,7 @@ public:
     uint16_t h() const {return _h;}
 
     // get size in pixels
-    uint16_t size() const {return w()*h();}
+    size_t size() const { return buffer->size(); }
 
     // return length of the longest side
     virtual uint16_t maxDim() const { return _w>_h ? _w : _h; }
@@ -800,7 +800,7 @@ void PixelDataBuffer<COLOR_TYPE>::clear(){ fill(COLOR_TYPE()); };
 
 template <class COLOR_TYPE>
 bool PixelDataBuffer<COLOR_TYPE>::resize(size_t s){
-    fb.reserve(s);
+    fb.resize(s);
     clear();
     return fb.size() == s;
 };
@@ -950,8 +950,7 @@ COLOR_TYPE& LedFB<COLOR_TYPE>::at(int16_t x, int16_t y){
 
 template <class COLOR_TYPE>
 bool LedFB<COLOR_TYPE>::resize(uint16_t w, uint16_t h){
-    // safety check
-    if (buffer->resize(w*h) && buffer->size() == w*h){
+    if (buffer->resize(w*h) && (buffer->size() == w*h)){
         _w=w; _h=h;
         return true;
     }
