@@ -942,6 +942,9 @@ LedFB<COLOR_TYPE>::LedFB(LedFB<COLOR_TYPE> const & rhs) : _w(rhs._w), _h(rhs._h)
 
 template <class COLOR_TYPE>
 COLOR_TYPE& LedFB<COLOR_TYPE>::at(int16_t x, int16_t y){
+    // since 2D to vector mapping depends on width, need to check if it's not out of bounds
+    // otherwise it could possibly be mapped into next y row
+    if (x>=_w) return buffer->stub_pixel;
     return ( buffer->at(_xymap(_w, _h, static_cast<uint16_t>(x), static_cast<uint16_t>(y))) );
 };
 
