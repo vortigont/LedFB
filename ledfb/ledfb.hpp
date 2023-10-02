@@ -462,6 +462,8 @@ public:
     void vmirror(bool m){_vmirror=m;}
     void hmirror(bool m){_hmirror=m;}
 
+    void setLayout(bool snake, bool vert, bool vm, bool hm){ _snake=snake; _vertical=vert; _vmirror=vm; _hmirror=hm;  };
+
     /**
      * @brief Transpose pixel 2D coordinates (x,y) into framebuffer's 1D array index
      * 0's index is at top-left corner, X axis goes to the 'right', Y axis goes 'down'
@@ -505,13 +507,15 @@ public:
      * @param t_vm - if true - tile colums are inverted (default tiles goes from up to downward, if true, tiles goes from down to upwards)
      * @param t_hm - if true - tile rows are inverted (default tiles goes from left to right, if true, tiles goes from left to right)
      */
-    LedTiles(unsigned tile_width = 16, unsigned tile_height = 16, unsigned tile_wcnt = 1, unsigned tile_hcnt = 1, bool t_snake = true, bool t_vertical = false, bool t_vm=false, bool t_hm=false) :
+    LedTiles(unsigned tile_width = 16, unsigned tile_height = 16, unsigned tile_wcnt = 1, unsigned tile_hcnt = 1, bool t_snake = false, bool t_vertical = false, bool t_vm=false, bool t_hm=false) :
         _tile_w(tile_width), _tile_h(tile_height), _tile_wcnt(tile_wcnt), _tile_hcnt(tile_hcnt),
         tileLayout(t_snake, t_vertical, t_vm, t_hm) {};
 
     virtual ~LedTiles() = default;
 
     // getters
+    unsigned canvas_w() const {return _tile_w*_tile_wcnt;}
+    unsigned canvas_h() const {return _tile_h*_tile_hcnt;}
     unsigned tile_w() const {return _tile_w;}
     unsigned tile_h() const {return _tile_h;}
     unsigned tile_wcnt() const {return _tile_wcnt;}
@@ -522,6 +526,9 @@ public:
     void tile_h(unsigned m) {_tile_h=m;}
     void tile_wcnt(unsigned m) {_tile_wcnt=m;}
     void tile_hcnt(unsigned m) {_tile_hcnt=m;}
+
+    // Adjust tiles size and canvas dimensions
+    void setTileDimensions(unsigned w, unsigned h, unsigned wcnt, unsigned hcnt){ _tile_w=w; _tile_h=h; _tile_wcnt=wcnt; _tile_hcnt=hcnt; }
 
     /**
      * @brief  transpose x,y coordinates of a pixel in a rectangular canvas
