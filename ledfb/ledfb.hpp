@@ -1029,9 +1029,8 @@ void LedFB<COLOR_TYPE>::fade(uint8_t v){
     // if buffer is of CRGB type
     if constexpr (std::is_same_v<CRGB, COLOR_TYPE>){
         for (auto i = buffer->begin(); i != buffer->end(); ++i)
-            i->nscale8(255 - v);
+            (*i).nscale8(255 - v);
     }
-
     // todo: implement fade for other color types
 }
 
@@ -1040,8 +1039,7 @@ void LedFB<COLOR_TYPE>::dim(uint8_t v){
     // if buffer is of CRGB type
     if constexpr (std::is_same_v<CRGB, COLOR_TYPE>){
         for (auto i = buffer->begin(); i != buffer->end(); ++i)
-            i->nscale8(255);
+            (*i).nscale8(v);
     }
-
     // todo: implement fade for other color types
 }
