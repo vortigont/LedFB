@@ -164,6 +164,28 @@ size_t LedStripe::transpose(unsigned w, unsigned h, unsigned x, unsigned y) cons
     }
 }
 
+size_t LedTiles::transpose(unsigned w, unsigned h, unsigned x, unsigned y) const {
+    if (_tile_wcnt == 1 && _tile_hcnt == 1)
+        return LedStripe::transpose(w,h,x,y);
+
+    return tiled_transpose(w,h,x,y);
+}
+
+size_t LedTiles::tiled_transpose(unsigned w, unsigned h, unsigned x, unsigned y) const {
+    // find tile's coordinate where our target pixel is located
+    unsigned tile_x = x / _tile_w , tile_y = y / _tile_h;
+    // find transposed tile's number
+    unsigned tile_num = tileLayout.transpose(_tile_wcnt, _tile_hcnt, tile_x, tile_y);
+
+    // find transposed pixel's number in specific tile
+    unsigned px_in_tile = LedStripe::transpose(_tile_w,_tile_h, x%_tile_w, y%_tile_h);
+
+    // return cummulative pixel's number in 1D vector
+    auto i =  _tile_w*_tile_h*tile_num + px_in_tile;
+    //Serial.printf("tiledXY:%d,%d, tnum:%d, pxit:%d, idx:%d\n", tile_x, tile_y, tile_num, px_in_tile, i);
+    return i;
+}
+
 void LedFB_GFX::drawPixel(int16_t x, int16_t y, uint16_t color) {
     std::visit(
         Overload {
