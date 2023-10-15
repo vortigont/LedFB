@@ -12,6 +12,9 @@
 // время "отправки" кадра в матрицу, мс. где 1.5 эмпирический коэффициент
 // #define FastLED_SHOW_TIME = WIDTH * HEIGHT * 24 * (0.250 + 0.625) / 1000 * 1.5
 
+// Out-of-bound CRGB placeholder - stub pixel that is mapped to either nonexistent buffer access or blackholed CLedController mapping
+static CRGB blackhole;
+
 // *** CLedCDB implementation ***
 
 // move construct
@@ -92,6 +95,7 @@ void CLedCDB::rebind(CLedCDB &rhs){
     rhs._reset_cled();
 }
 
+#ifdef LEDFB_WITH_HUB75_I2S
 //  *** HUB75 Panel implementation ***
 ESP32HUB75_DisplayEngine::ESP32HUB75_DisplayEngine(const HUB75_I2S_CFG &config) : canvas(new HUB75PanelDB(config)) {
     canvas->hub75.begin();
@@ -140,6 +144,7 @@ std::shared_ptr<PixelDataBuffer<CRGB>> ESP32HUB75_DisplayEngine::getOverlay(){
     }
     return p;
 }
+#endif LEDFB_WITH_HUB75_I2S
 
 
 

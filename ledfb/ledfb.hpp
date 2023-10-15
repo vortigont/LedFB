@@ -11,11 +11,9 @@
 #include <variant>
 #include "w2812-rmt.hpp"
 #include <Adafruit_GFX.h>
-#include "ESP32-HUB75-MatrixPanel-I2S-DMA.h"
-
-
-// Out-of-bound CRGB placeholder - stub pixel that is mapped to either nonexistent buffer access or blackholed CLedController mapping
-static CRGB blackhole;
+#ifdef LEDFB_WITH_HUB75_I2S
+  #include "ESP32-HUB75-MatrixPanel-I2S-DMA.h"
+#endif
 
 /**
  * @brief Base class with CRGB data storage that acts as a pixel buffer storage
@@ -239,13 +237,25 @@ public:
     void show(){ FastLED.show(); }
 };
 
-
+#ifdef LEDFB_WITH_HUB75_I2S
+/**
+ * @brief CRGB buffer backed with esp32 HUB75_i2s_dma lib
+ * i2s DMA has it's own DMA buffer to output data, but it's a one-way buffer
+ * you can write there, but can't read. So for some applications you are forced to have external buffer for pixel data anyway
+ * this class could be a good option to have a bounded buffer
+ */
 class HUB75PanelDB : public PixelDataBuffer<CRGB> {
 
 public:
     // I2S DMA buffer object
     MatrixPanel_I2S_DMA hub75;
 
+    /**
+     * @brief Construct a new HUB75PanelDB object
+     * will create a new CRGB buffer and bind it with MatrixPanel_I2S_DMA object
+     * 
+     * @param config HUB75_I2S_CFG struct
+     */
     HUB75PanelDB(const HUB75_I2S_CFG &config) : PixelDataBuffer(config.mx_width*config.mx_height), hub75(config) { hub75.begin(); }
 
     /**
@@ -261,6 +271,7 @@ public:
 
     void clear() override;
 };
+#endif  // LEDFB_WITH_HUB75_I2S
 
 
 
@@ -702,6 +713,7 @@ private:
     void _switch_to_bb();
 };
 
+#ifdef LEDFB_WITH_HUB75_I2S
 /**
  * @brief Display engine based in HUB75 RGB panel
  * 
@@ -758,9 +770,7 @@ public:
     uint8_t brightness(uint8_t b) override { canvas->hub75.setBrightness(b); return b; };
 
 };
-
-
-
+#endif  // LEDFB_WITH_HUB75_I2S
 
 
 
