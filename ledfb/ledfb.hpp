@@ -925,9 +925,9 @@ void ESP32RMTDisplayEngine<RGB_ORDER>::show(){
 
     // check if back-buffer is present but no longer needed (if no overlay present or canvas is not persistent anymore)
     if (backbuff && (overlay.expired() || !_canvas_protect)){
-        //LOG(println, "BB release");
+        //LOG(println, "BB reset");
         canvas->rebind(*backbuff.get());
-        backbuff.release();
+        backbuff.reset();
     }
 
     if (!overlay.expired()) _ovr_overlap(); // apply overlay to either canvas or back buffer, if bb is present
@@ -941,7 +941,7 @@ void ESP32RMTDisplayEngine<RGB_ORDER>::clear(){
     if (backbuff){
         // release BackBuffer, it will be recreated if required
         canvas->rebind(*backbuff.get());
-        backbuff.release();
+        backbuff.reset();
     }
     auto ovr = overlay.lock();
     if (ovr) ovr->clear();          // clear overlay
