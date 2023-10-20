@@ -29,6 +29,7 @@ https://github.com/FastLED/FastLED/issues/826
 */
 #pragma once
 #include <FastLED.h>
+#ifdef ESP32
 
 /* ESP32 RMT clockless controller
   this is a stripped template of ClocklessController from FastLED libraru that does not include
@@ -139,3 +140,4 @@ class ESP32RMT_WS2812B : public ESP32RMT_WS2812Controller800Khz<RGB_ORDER> {
 public:
     ESP32RMT_WS2812B(uint8_t pin) : ESP32RMT_WS2812Controller800Khz<RGB_ORDER>(pin){}
 };
+#endif  //ifdef ESP32

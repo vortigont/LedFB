@@ -9,6 +9,7 @@
 #include <vector>
 #include <memory>
 #include <variant>
+#include <functional>
 #include "w2812-rmt.hpp"
 #include <Adafruit_GFX.h>
 #ifdef LEDFB_WITH_HUB75_I2S
@@ -616,6 +617,7 @@ protected:
 };
 
 
+#ifdef ESP32
 /**
  * @brief Dispaly engine based on ESP32 RMT backend for ws2818 LED strips  
  * 
@@ -712,6 +714,7 @@ private:
      */
     void _switch_to_bb();
 };
+#endif //ifdef ESP32
 
 #ifdef LEDFB_WITH_HUB75_I2S
 /**
@@ -836,7 +839,7 @@ public:
     void fillScreen(CRGB color);
 
     // Color conversion
-    static CRGB color16toCRGB(uint16_t c){ return CRGB((c>>11 & 0x1f) * 527 + 23 >> 6, (c>>5 & 0xfc) * 259 + 33 >> 6, (c&0x1f) * 527 + 23 >> 6); }
+    static CRGB color16toCRGB(uint16_t c){ return CRGB( ((c>>11 & 0x1f) * 527 + 23) >> 6, ((c>>5 & 0xfc) * 259 + 33) >> 6, ((c&0x1f) * 527 + 23) >> 6); }
     static uint16_t colorCRGBto16(CRGB c){ return c.r >> 3 << 11 | c.g >> 2 << 5 | c.b >> 3; }
 
 
@@ -882,6 +885,7 @@ bool PixelDataBuffer<COLOR_TYPE>::resize(size_t s){
     return fb.size() == s;
 };
 
+#ifdef ESP32
 template<EOrder RGB_ORDER>
 ESP32RMTDisplayEngine<RGB_ORDER>::ESP32RMTDisplayEngine(int gpio){
     wsstrip = new(std::nothrow) ESP32RMT_WS2812B<RGB_ORDER>(gpio);
@@ -996,6 +1000,7 @@ uint8_t ESP32RMTDisplayEngine<RGB_ORDER>::brightness(uint8_t b){
     FastLED.setBrightness(b);
     return FastLED.getBrightness();
 }
+#endif  //ifdef ESP32
 
 
 
