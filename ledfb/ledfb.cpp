@@ -109,7 +109,8 @@ void HUB75PanelDB::show(){
 
 void HUB75PanelDB::clear(){
     fb.clear();
-    hub75.clearScreen();
+    show();
+    //hub75.clearScreen();  // somehow this kills panel output
 }
 
 void ESP32HUB75_DisplayEngine::clear(){
