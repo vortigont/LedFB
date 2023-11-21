@@ -266,11 +266,15 @@ public:
     void show();
 
     /**
+     * @brief a more faster way to clear buffer+DMA then clear()+show()
+     * 
+     */
+    void wipe(){ clear(); hub75.clearScreen(); };
+
+    /**
      * @brief HUB75Panel is not supported (yet)
      */
     bool resize(size_t s) override { return false; };
-
-    void clear() override;
 };
 #endif  // LEDFB_WITH_HUB75_I2S
 
@@ -594,7 +598,7 @@ public:
      * @brief wipe buffers and draw a blank screen
      * 
      */
-    virtual void clear();
+    virtual void clear(){};
 
     /**
      * @brief change display brightness

@@ -97,26 +97,28 @@ void CLedCDB::rebind(CLedCDB &rhs){
 
 #ifdef LEDFB_WITH_HUB75_I2S
 //  *** HUB75 Panel implementation ***
-ESP32HUB75_DisplayEngine::ESP32HUB75_DisplayEngine(const HUB75_I2S_CFG &config) : canvas(new HUB75PanelDB(config)) {
-    canvas->hub75.begin();
-}
-
 void HUB75PanelDB::show(){
     for (size_t i = 0; i != PixelDataBuffer<CRGB>::fb.size(); ++i){
         hub75.drawPixelRGB888( i % hub75.getCfg().mx_width, i / hub75.getCfg().mx_width, PixelDataBuffer<CRGB>::fb.at(i).r, PixelDataBuffer<CRGB>::fb.at(i).g, PixelDataBuffer<CRGB>::fb.at(i).b);
     }
 }
-
+/*
 void HUB75PanelDB::clear(){
     PixelDataBuffer::clear();
     hub75.clearScreen();
 }
+*/
+
+ESP32HUB75_DisplayEngine::ESP32HUB75_DisplayEngine(const HUB75_I2S_CFG &config) : canvas(new HUB75PanelDB(config)) {
+    canvas->hub75.begin();
+}
 
 void ESP32HUB75_DisplayEngine::clear(){
     if (!canvas) return;
-    canvas->clear();
+    canvas->wipe();                 // use fast DMA wipe
     auto ovr = overlay.lock();
     if (ovr) ovr->clear();          // clear overlay
+
 }
 
 void ESP32HUB75_DisplayEngine::show(){
