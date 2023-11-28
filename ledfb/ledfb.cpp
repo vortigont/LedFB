@@ -155,18 +155,16 @@ std::shared_ptr<PixelDataBuffer<CRGB>> ESP32HUB75_DisplayEngine::getOverlay(){
 
 // matrix stripe layout transformation
 size_t LedStripe::transpose(unsigned w, unsigned h, unsigned x, unsigned y) const {
-    unsigned idx = y*w+x;
     if ( _vertical ){
-        // verticaly ordered stripes
-        bool virtual_mirror = (_snake && x%2) ? !_vmirror : _vmirror;    // for snake-shaped strip, invert vertical odd columns
-        size_t xx = virtual_mirror ? w - idx/h-1 : idx/h;
-        size_t yy = _hmirror ? h - idx%h-1 : idx%h;
-        return yy * w + xx;
+        // vertically ordered stripes
+        bool virtual_v_mirror =  (_snake && (_hmirror ? w-x-1 : x )%2) ? !_vmirror : _vmirror; // for snake-shaped strip, invert vertical odd columns either from left or from right side
+        size_t xx = _hmirror ? w - x-1 : x;
+        size_t yy = virtual_v_mirror ? h-y-1 : y;
+        return xx * h + yy;
     } else {
-        // horizontaly ordered stripes
-        bool virtual_mirror = (_snake && y%2) ? !_hmirror : _hmirror; // for snake-shaped displays, invert horizontal odd rows
-        size_t xx = virtual_mirror ? w - idx%w-1 : idx%w;
-        size_t yy = _vmirror ? h - idx/w-1 : idx/w;
+        bool virtual_h_mirror = (_snake && (_vmirror ? h-y-1 : y)%2) ? !_hmirror : _hmirror; // for snake-shaped displays, invert horizontal odd rows either from the top or bottom
+        size_t xx = virtual_h_mirror ? w - x-1 : x;
+        size_t yy = _vmirror ? h-y-1 : y;
         return yy * w + xx;
     }
 }
