@@ -192,6 +192,23 @@ size_t LedTiles::tiled_transpose(unsigned w, unsigned h, unsigned x, unsigned y)
 }
 
 void LedFB_GFX::drawPixel(int16_t x, int16_t y, uint16_t color) {
+    int16_t t;
+    switch (rotation) {
+    case 1:
+      t = x;
+      x = width() - 1 - y;
+      y = t;
+      break;
+    case 2:
+      x = width() - 1 - x;
+      y = height() - 1 - y;
+      break;
+    case 3:
+      t = x;
+      x = y;
+      y = height() - 1 - t;
+      break;
+    }
     std::visit(
         Overload {
             [this, &x, &y, &color](const auto& variant_item) { _drawPixelC16(variant_item.get(), x,y,color); },
@@ -210,6 +227,23 @@ void LedFB_GFX::fillScreen(uint16_t color) {
 }
 
 void LedFB_GFX::drawPixel(int16_t x, int16_t y, CRGB color) {
+    int16_t t;
+    switch (rotation) {
+    case 1:
+      t = x;
+      x = width() - 1 - y;
+      y = t;
+      break;
+    case 2:
+      x = width() - 1 - x;
+      y = height() - 1 - y;
+      break;
+    case 3:
+      t = x;
+      x = y;
+      y = height() - 1 - t;
+      break;
+    }
     std::visit( Overload{ [this, &x, &y, &color](const auto& variant_item) { _drawPixelCRGB(variant_item.get(), x,y,color); }, }, _fb);
 }
 
