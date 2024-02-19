@@ -16,7 +16,7 @@ With a bit of modified templates from FastLED, I can create a LEDController with
 
 with this wrapper class clockless LED strips could be configured run time in a way like this
 
-ESP32RMT_WS2812B<COLOR_ORDER> wsstrip(gpio_num);
+ESP32RMT_WS2812B wsstrip(gpio_num, color_order);
 FastLED.addLeds(&wsstrip, CRGB_buffer*, CRGB_buffersize);
 
 /Vortigont/
@@ -31,13 +31,134 @@ https://github.com/FastLED/FastLED/issues/826
 #include <FastLED.h>
 #ifdef ESP32
 
+/*
+    Inheritance map:
+
+    static CLEDController &addLeds(CLEDController *pLed, struct CRGB *data, int nLedsOrOffset, int nLedsIfOffset = 0);
+
+
+    class ClocklessController : public CPixelLEDController
+        class CPixelLEDController : public CLEDController
+
+*/
+
+
+/// Template extension of the CLEDController class
+/// in comparision with CPixelLEDController this template does NOT have EOrder template parameter that defines RGB color ordering
+/// it's a bit slower due to switch/case for each color type, but in case you do not care much it could be much handy for handling
+/// run-time defined color order configurations
+///
+/// @tparam RGB_ORDER the rgb ordering for the LEDs (e.g. what order red, green, and blue data is written out in)
+/// @tparam LANES how many parallel lanes of output to write
+/// @tparam MASK bitmask for the output lanes
+template<typename showPolicy, int LANES=1, uint32_t MASK=0xFFFFFFFF>
+class CPixelLEDControllerUnordered : public CLEDController {
+    // color order
+    const EOrder _rgb_order;
+
+protected:
+    /// Send the LED data to the strip
+    /// @param pixels the PixelController object for the LED data
+    //virtual void showPixels(PixelController<RGB_ORDER,LANES,MASK> & pixels) = 0;
+    template<typename T>
+    void showPixels(T& pixels){
+        showPolicy& policy = static_cast<showPolicy&>(*this);
+        policy.showPixelsPolicy(pixels);
+    }
+
+    /// Set all the LEDs on the controller to a given color
+    /// @param data the CRGB color to set the LEDs to
+    /// @param nLeds the number of LEDs to set to this color
+    /// @param scale the RGB scaling value for outputting color
+    /// @param rgb_order color order of the stripe that is controlled by this CLEDController
+    virtual void showColor(const struct CRGB & data, int nLeds, CRGB scale) {
+        switch (_rgb_order){
+            // this is the most usual type of ws strips around
+            case GRB : {
+                PixelController<GRB, LANES, MASK> pixels(data, nLeds, scale, getDither());
+                return showPixels(pixels);
+            }
+            case RBG : {
+                PixelController<RBG, LANES, MASK> pixels(data, nLeds, scale, getDither());
+                return showPixels(pixels);
+            }
+            case GBR : {
+                PixelController<GBR, LANES, MASK> pixels(data, nLeds, scale, getDither());
+                return showPixels(pixels);
+            }
+            case BRG : {
+                PixelController<BRG, LANES, MASK> pixels(data, nLeds, scale, getDither());
+                return showPixels(pixels);
+            }
+            case BGR : {
+                PixelController<BGR, LANES, MASK> pixels(data, nLeds, scale, getDither());
+                return showPixels(pixels);
+            }
+            default:
+                // consider it as RGB
+                PixelController<RGB, LANES, MASK> pixels(data, nLeds, scale, getDither());
+                showPixels(pixels);
+        }
+    }
+
+    /// Write the passed in RGB data out to the LEDs managed by this controller
+    /// @param data the RGB data to write out to the strip
+    /// @param nLeds the number of LEDs being written out
+    /// @param scale the RGB scaling to apply to each LED before writing it out
+    virtual void show(const struct CRGB *data, int nLeds, CRGB scale) {
+        // nLeds < 0 implies that we want to show them in reverse
+        switch (_rgb_order){
+            // this is the most usual type of ws strips around
+            case GRB : {
+                PixelController<GRB, LANES, MASK> pixels(data, nLeds < 0 ? -nLeds : nLeds, scale, getDither());
+                if(nLeds < 0) pixels.mAdvance = -pixels.mAdvance;
+                return showPixels(pixels);
+            }
+            case RBG : {
+                PixelController<RBG, LANES, MASK> pixels(data, nLeds < 0 ? -nLeds : nLeds, scale, getDither());
+                if(nLeds < 0) pixels.mAdvance = -pixels.mAdvance;
+                return showPixels(pixels);
+            }
+            case GBR : {
+                PixelController<GBR, LANES, MASK> pixels(data, nLeds < 0 ? -nLeds : nLeds, scale, getDither());
+                if(nLeds < 0) pixels.mAdvance = -pixels.mAdvance;
+                return showPixels(pixels);
+            }
+            case BRG : {
+                PixelController<BRG, LANES, MASK> pixels(data, nLeds < 0 ? -nLeds : nLeds, scale, getDither());
+                if(nLeds < 0) pixels.mAdvance = -pixels.mAdvance;
+                return showPixels(pixels);
+            }
+            case BGR : {
+                PixelController<BGR, LANES, MASK> pixels(data, nLeds < 0 ? -nLeds : nLeds, scale, getDither());
+                if(nLeds < 0) pixels.mAdvance = -pixels.mAdvance;
+                return showPixels(pixels);
+            }
+            default: {
+                // consider it as RGB
+                PixelController<RGB, LANES, MASK> pixels(data, nLeds < 0 ? -nLeds : nLeds, scale, getDither());
+                if(nLeds < 0) pixels.mAdvance = -pixels.mAdvance;
+                showPixels(pixels);
+            }
+        }
+    }
+
+public:
+    CPixelLEDControllerUnordered(EOrder rgb_order = GRB) : CLEDController(), _rgb_order(rgb_order) {}
+
+    /// Get the number of lanes of the Controller
+    /// @returns LANES from template
+    int lanes() const { return LANES; }
+};
+
+
 /* ESP32 RMT clockless controller
   this is a stripped template of ClocklessController from FastLED libraru that does not include
   gpio number as template parameter but accept it as a class constructtor parameter.
   This allowing to create an instance with run-time definable gpio
 */
-template <EOrder RGB_ORDER = RGB, int XTRA0 = 0, bool FLIP = false, int WAIT_TIME = 5>
-class ESP32RMT_ClocklessController : public CPixelLEDController<RGB_ORDER>
+template <int XTRA0 = 0, bool FLIP = false, int WAIT_TIME = 5>
+class ESP32RMT_ClocklessController : public CPixelLEDControllerUnordered<ESP32RMT_ClocklessController<XTRA0, FLIP, WAIT_TIME>>
 {
 private:
 
@@ -50,15 +171,29 @@ private:
 
 public:
 
-    ESP32RMT_ClocklessController(uint8_t pin, unsigned t1, unsigned t2, unsigned t3)
-        : mRMTController(pin, t1, t2, t3, FASTLED_RMT_MAX_CHANNELS, FASTLED_RMT_MEM_BLOCKS)
-        {}
+    ESP32RMT_ClocklessController(uint8_t pin, EOrder rgb_order, unsigned t1, unsigned t2, unsigned t3)
+        : CPixelLEDControllerUnordered<ESP32RMT_ClocklessController<XTRA0, FLIP, WAIT_TIME>>(rgb_order),
+        mRMTController(pin, t1, t2, t3, FASTLED_RMT_MAX_CHANNELS, FASTLED_RMT_MEM_BLOCKS) {}
 
     void init()
     {
     }
 
     virtual uint16_t getMaxRefreshRate() const { return 400; }
+
+    // -- Show pixels
+    //    This is the main entry point for the controller.
+    template<EOrder RGB_ORDER = RGB>
+    void showPixelsPolicy(PixelController<RGB_ORDER> & pixels)
+    {
+        if (FASTLED_RMT_BUILTIN_DRIVER) {
+            convertAllPixelData(pixels);
+        } else {
+            loadPixelData(pixels);
+        }
+
+        mRMTController.showPixels();
+    }
 
 protected:
 
@@ -67,6 +202,7 @@ protected:
     //    by the RMT driver. Copying does two important jobs: it fixes the color
     //    order for the pixels, and it performs the scaling/adjusting ahead of time.
     //    It also packs the bytes into 32 bit chunks with the right bit order.
+    template<EOrder RGB_ORDER = RGB>
     void loadPixelData(PixelController<RGB_ORDER> & pixels)
     {
         // -- Make sure the buffer is allocated
@@ -83,23 +219,11 @@ protected:
         }
     }
 
-    // -- Show pixels
-    //    This is the main entry point for the controller.
-    virtual void showPixels(PixelController<RGB_ORDER> & pixels)
-    {
-        if (FASTLED_RMT_BUILTIN_DRIVER) {
-            convertAllPixelData(pixels);
-        } else {
-            loadPixelData(pixels);
-        }
-
-        mRMTController.showPixels();
-    }
-
     // -- Convert all pixels to RMT pulses
     //    This function is only used when the user chooses to use the
     //    built-in RMT driver, which needs all of the RMT pulses
     //    up-front.
+    template<EOrder RGB_ORDER = RGB>
     void convertAllPixelData(PixelController<RGB_ORDER> & pixels)
     {
         // -- Make sure the data buffer is allocated
@@ -125,19 +249,17 @@ protected:
 
 // WS2812 - 250ns, 625ns, 375ns
 // a reduced template for WS2812Controller800Khz that instatiates ESP32's RMT clockless controller with run-time defined gpio number
-template <EOrder RGB_ORDER = RGB>
-class ESP32RMT_WS2812Controller800Khz : public ESP32RMT_ClocklessController<RGB_ORDER> {
+class ESP32RMT_WS2812Controller800Khz : public ESP32RMT_ClocklessController<> {
 public:
-    ESP32RMT_WS2812Controller800Khz(uint8_t pin) : ESP32RMT_ClocklessController<RGB_ORDER>(pin, C_NS(250), C_NS(625), C_NS(375)) {}
+    ESP32RMT_WS2812Controller800Khz(uint8_t pin, EOrder rgb_order) : ESP32RMT_ClocklessController(pin, rgb_order, C_NS(250), C_NS(625), C_NS(375)) {}
 };
 
 /*
  WS2812 controller class @ 800 KHz.
  with RTM run-time defined gpio
 */
-template<EOrder RGB_ORDER = RGB>
-class ESP32RMT_WS2812B : public ESP32RMT_WS2812Controller800Khz<RGB_ORDER> {
+class ESP32RMT_WS2812B : public ESP32RMT_WS2812Controller800Khz {
 public:
-    ESP32RMT_WS2812B(uint8_t pin) : ESP32RMT_WS2812Controller800Khz<RGB_ORDER>(pin){}
+    ESP32RMT_WS2812B(uint8_t pin, EOrder rgb_order) : ESP32RMT_WS2812Controller800Khz(pin, rgb_order){}
 };
 #endif  //ifdef ESP32

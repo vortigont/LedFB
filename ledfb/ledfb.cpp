@@ -95,6 +95,118 @@ void CLedCDB::rebind(CLedCDB &rhs){
     rhs._reset_cled();
 }
 
+
+#ifdef ESP32
+ESP32RMTDisplayEngine::ESP32RMTDisplayEngine(int gpio, EOrder rgb_order){
+    wsstrip = new(std::nothrow) ESP32RMT_WS2812B(gpio, rgb_order);
+}
+
+ESP32RMTDisplayEngine::ESP32RMTDisplayEngine(int gpio, EOrder rgb_order, std::shared_ptr<CLedCDB> buffer) : canvas(buffer) {
+    wsstrip = new(std::nothrow) ESP32RMT_WS2812B(gpio, rgb_order);
+    if (wsstrip && canvas){
+        // attach buffer to RMT engine
+        cled = &FastLED.addLeds(wsstrip, canvas->data().data(), canvas->size());
+        // hook framebuffer to contoller
+        canvas->bind(cled);
+        show();
+    }
+}
+
+bool ESP32RMTDisplayEngine::attachCanvas(std::shared_ptr<CLedCDB> &fb){
+    if (cled) return false; // this function is not idempotent, so refuse to mess with existing controller
+
+    // share data buffer instance
+    canvas = fb;
+
+    if (wsstrip && canvas){
+        // attach buffer to RMT engine
+        cled = &FastLED.addLeds(wsstrip, canvas->data().data(), canvas->size());
+        // hook framebuffer to contoller
+        canvas->bind(cled);
+        show();
+        return true;
+    }
+
+    return false;   // somethign went either wrong or already been setup 
+}
+
+void ESP32RMTDisplayEngine::show(){
+    if (!overlay.expired() && _canvas_protect && !backbuff)    // check if I need to switch to back buff due to canvas persistency and overlay data present 
+        _switch_to_bb();
+
+    // check if back-buffer is present but no longer needed (if no overlay present or canvas is not persistent anymore)
+    if (backbuff && (overlay.expired() || !_canvas_protect)){
+        //LOG(println, "BB reset");
+        canvas->rebind(*backbuff.get());
+        backbuff.reset();
+    }
+
+    if (!overlay.expired()) _ovr_overlap(); // apply overlay to either canvas or back buffer, if bb is present
+    FastLED.show();
+}
+
+void ESP32RMTDisplayEngine::clear(){
+    if (!canvas) return;
+    canvas->clear();
+    if (backbuff){
+        // release BackBuffer, it will be recreated if required
+        canvas->rebind(*backbuff.get());
+        backbuff.reset();
+    }
+    auto ovr = overlay.lock();
+    if (ovr) ovr->clear();          // clear overlay
+    FastLED.show();
+}
+
+std::shared_ptr<PixelDataBuffer<CRGB>> ESP32RMTDisplayEngine::getOverlay(){
+    auto p = overlay.lock();
+    if (!p){
+        // no overlay exist at the moment
+        p = std::make_shared<CLedCDB>(canvas->size());
+        overlay = p;
+    }
+    return p;
+}
+
+void ESP32RMTDisplayEngine::_ovr_overlap(){
+    auto ovr = overlay.lock();
+    if (canvas->size() != ovr->size()) return;  // a safe-check for buffer sizes
+
+    auto ovr_iterator = ovr->begin();
+
+    if (backbuff.get()){
+        auto bb_iterator = backbuff->begin();
+        // fill BackBuffer with either canvas or overlay based on keycolor
+        for (auto i = canvas->begin(); i != canvas->end(); ++i ){
+            *bb_iterator = (*ovr_iterator == _transparent_color) ? *i : *ovr_iterator;
+            ++ovr_iterator;
+            ++bb_iterator;
+        }
+    } else {
+        // apply all non key-color pixels to canvas
+        for (auto i = canvas->begin(); i != canvas->end(); ++i ){
+            if (*ovr_iterator != _transparent_color)
+                *i = *ovr_iterator;
+            ++ovr_iterator;
+        }
+    }   
+}
+
+void ESP32RMTDisplayEngine::_switch_to_bb(){
+    //LOG(println, "Switch to BB");
+    backbuff = std::make_unique<CLedCDB>(canvas->size());
+    backbuff->rebind(*canvas);    // switch backend binding
+}
+
+uint8_t ESP32RMTDisplayEngine::brightness(uint8_t b){
+    FastLED.setBrightness(b);
+    return FastLED.getBrightness();
+}
+#endif  //ifdef ESP32
+
+
+
+
 #ifdef LEDFB_WITH_HUB75_I2S
 //  *** HUB75 Panel implementation ***
 void HUB75PanelDB::show(){

@@ -627,7 +627,6 @@ protected:
  * 
  * @tparam RGB_ORDER 
  */
-template<EOrder RGB_ORDER = RGB>
 class ESP32RMTDisplayEngine : public DisplayEngine {
 protected:
     std::shared_ptr<CLedCDB>  canvas;      // canvas buffer where background data is stored
@@ -637,7 +636,7 @@ protected:
     // FastLED controller
     CLEDController *cled = nullptr;
     // led strip driver
-    ESP32RMT_WS2812B<RGB_ORDER> *wsstrip;
+    ESP32RMT_WS2812B *wsstrip;
 
 public:
     /**
@@ -645,7 +644,7 @@ public:
      * 
      * @param gpio - gpio to bind ESP32 RMT engine
      */
-    ESP32RMTDisplayEngine(int gpio);
+    ESP32RMTDisplayEngine(int gpio, EOrder rgb_order);
 
     /**
      * @brief Construct a new Overlay Engine object
@@ -653,7 +652,7 @@ public:
      * @param gpio - gpio to bind
      * @param buffsize - CLED buffer object
      */
-    ESP32RMTDisplayEngine(int gpio, std::shared_ptr<CLedCDB> buffer);
+    ESP32RMTDisplayEngine(int gpio, EOrder rgb_order, std::shared_ptr<CLedCDB> buffer);
 
     /**
      * @brief Construct a new Overlay Engine object
@@ -661,7 +660,7 @@ public:
      * @param gpio - gpio to bind
      * @param buffsize - desired LED buffer size
      */
-    ESP32RMTDisplayEngine(int gpio, size_t buffsize) : ESP32RMTDisplayEngine<RGB_ORDER>(gpio, std::make_shared<CLedCDB>(buffsize)) {};
+    ESP32RMTDisplayEngine(int gpio, EOrder rgb_order, size_t buffsize) : ESP32RMTDisplayEngine(gpio, rgb_order, std::make_shared<CLedCDB>(buffsize)) {};
 
     /**
      * @brief take a buffer pointer and attach it to ESP32 RMT engine
@@ -888,124 +887,6 @@ bool PixelDataBuffer<COLOR_TYPE>::resize(size_t s){
     clear();
     return fb.size() == s;
 };
-
-#ifdef ESP32
-template<EOrder RGB_ORDER>
-ESP32RMTDisplayEngine<RGB_ORDER>::ESP32RMTDisplayEngine(int gpio){
-    wsstrip = new(std::nothrow) ESP32RMT_WS2812B<RGB_ORDER>(gpio);
-}
-
-template<EOrder RGB_ORDER>
-ESP32RMTDisplayEngine<RGB_ORDER>::ESP32RMTDisplayEngine(int gpio, std::shared_ptr<CLedCDB> buffer) : canvas(buffer) {
-    wsstrip = new(std::nothrow) ESP32RMT_WS2812B<RGB_ORDER>(gpio);
-    if (wsstrip && canvas){
-        // attach buffer to RMT engine
-        cled = &FastLED.addLeds(wsstrip, canvas->data().data(), canvas->size());
-        // hook framebuffer to contoller
-        canvas->bind(cled);
-        show();
-    }
-};
-
-template<EOrder RGB_ORDER>
-bool ESP32RMTDisplayEngine<RGB_ORDER>::attachCanvas(std::shared_ptr<CLedCDB> &fb){
-    if (cled) return false; // this function is not idempotent, so refuse to mess with existing controller
-
-    // share data buffer instance
-    canvas = fb;
-
-    if (wsstrip && canvas){
-        // attach buffer to RMT engine
-        cled = &FastLED.addLeds(wsstrip, canvas->data().data(), canvas->size());
-        // hook framebuffer to contoller
-        canvas->bind(cled);
-        show();
-        return true;
-    }
-
-    return false;   // somethign went either wrong or already been setup 
-}
-
-template<EOrder RGB_ORDER>
-void ESP32RMTDisplayEngine<RGB_ORDER>::show(){
-    if (!overlay.expired() && _canvas_protect && !backbuff)    // check if I need to switch to back buff due to canvas persistency and overlay data present 
-        _switch_to_bb();
-
-    // check if back-buffer is present but no longer needed (if no overlay present or canvas is not persistent anymore)
-    if (backbuff && (overlay.expired() || !_canvas_protect)){
-        //LOG(println, "BB reset");
-        canvas->rebind(*backbuff.get());
-        backbuff.reset();
-    }
-
-    if (!overlay.expired()) _ovr_overlap(); // apply overlay to either canvas or back buffer, if bb is present
-    FastLED.show();
-};
-
-template<EOrder RGB_ORDER>
-void ESP32RMTDisplayEngine<RGB_ORDER>::clear(){
-    if (!canvas) return;
-    canvas->clear();
-    if (backbuff){
-        // release BackBuffer, it will be recreated if required
-        canvas->rebind(*backbuff.get());
-        backbuff.reset();
-    }
-    auto ovr = overlay.lock();
-    if (ovr) ovr->clear();          // clear overlay
-    FastLED.show();
-}
-
-template<EOrder RGB_ORDER>
-std::shared_ptr<PixelDataBuffer<CRGB>> ESP32RMTDisplayEngine<RGB_ORDER>::getOverlay(){
-    auto p = overlay.lock();
-    if (!p){
-        // no overlay exist at the moment
-        p = std::make_shared<CLedCDB>(canvas->size());
-        overlay = p;
-    }
-    return p;
-}
-
-template<EOrder RGB_ORDER>
-void ESP32RMTDisplayEngine<RGB_ORDER>::_ovr_overlap(){
-    auto ovr = overlay.lock();
-    if (canvas->size() != ovr->size()) return;  // a safe-check for buffer sizes
-
-    auto ovr_iterator = ovr->begin();
-
-    if (backbuff.get()){
-        auto bb_iterator = backbuff->begin();
-        // fill BackBuffer with either canvas or overlay based on keycolor
-        for (auto i = canvas->begin(); i != canvas->end(); ++i ){
-            *bb_iterator = (*ovr_iterator == _transparent_color) ? *i : *ovr_iterator;
-            ++ovr_iterator;
-            ++bb_iterator;
-        }
-    } else {
-        // apply all non key-color pixels to canvas
-        for (auto i = canvas->begin(); i != canvas->end(); ++i ){
-            if (*ovr_iterator != _transparent_color)
-                *i = *ovr_iterator;
-            ++ovr_iterator;
-        }
-    }   
-}
-
-template<EOrder RGB_ORDER>
-void ESP32RMTDisplayEngine<RGB_ORDER>::_switch_to_bb(){
-    //LOG(println, "Switch to BB");
-    backbuff = std::make_unique<CLedCDB>(canvas->size());
-    backbuff->rebind(*canvas);    // switch backend binding
-}
-
-template<EOrder RGB_ORDER>
-uint8_t ESP32RMTDisplayEngine<RGB_ORDER>::brightness(uint8_t b){
-    FastLED.setBrightness(b);
-    return FastLED.getBrightness();
-}
-#endif  //ifdef ESP32
-
 
 
 template <class COLOR_TYPE>
