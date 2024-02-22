@@ -9,15 +9,35 @@
 /*
 
 All of FastLED's controller templates includes gpio parameter. That makes
-mandatory to define gpio number on compile time due to optimisation for some specific platforms.
+mandatory to define gpio number/RGB color order on compile-time due to optimisation for good old AVRs or specific platforms.
 
-ESP32 uses RMT driver via commutation matrix, so actually it does not care about build time optimisation.
-With a bit of modified templates from FastLED, I can create a LEDController with a run-time definable gpio.
+ESP32 uses RMT driver via commutation matrix, so actually it does not care about build time optimisation for gpio.
+With a bit of modified templates from FastLED, I can create a LEDController with a run-time definable gpio and color order.
 
 with this wrapper class clockless LED strips could be configured run time in a way like this
 
+
+#include "w2812-rmt.hpp"
+
+// define or load from some eeprom/FS gpio number
+int gpio_num = 10;
+// define or load from some eeprom/FS color order
+EOrder color_order = GRB;
+// define or load from some eeprom/FS number of leds required
+int CRGB_buffersize = 256;
+
+CRGB* CRGB_buffer;
+
+setup(){
+// allocate mem for buffer
+CRGB_buffer = new CRGB[numofleds];
+// create stripe driver for WS2812B
 ESP32RMT_WS2812B wsstrip(gpio_num, color_order);
-FastLED.addLeds(&wsstrip, CRGB_buffer*, CRGB_buffersize);
+// attach the driver to FastLED engine
+FastLED.addLeds(&wsstrip, CRGB_buffer, CRGB_buffersize);  
+}
+
+
 
 /Vortigont/
 
@@ -37,18 +57,19 @@ https://github.com/FastLED/FastLED/issues/826
     static CLEDController &addLeds(CLEDController *pLed, struct CRGB *data, int nLedsOrOffset, int nLedsIfOffset = 0);
 
 
+class CPixelLEDController : public CLEDController
     class ClocklessController : public CPixelLEDController
-        class CPixelLEDController : public CLEDController
-
+        class WS2812Controller800Khz : public ClocklessController
+            class WS2812B : public WS2812Controller800Khz
 */
 
 
 /// Template extension of the CLEDController class
 /// in comparision with CPixelLEDController this template does NOT have EOrder template parameter that defines RGB color ordering
 /// it's a bit slower due to switch/case for each color type, but in case you do not care much it could be much handy for handling
-/// run-time defined color order configurations
+/// run-time defined color order configurations. The performance impact on esp32 is negligible.
 ///
-/// @tparam RGB_ORDER the rgb ordering for the LEDs (e.g. what order red, green, and blue data is written out in)
+/// @tparam showPolicy a class type that implements pixel data output policy
 /// @tparam LANES how many parallel lanes of output to write
 /// @tparam MASK bitmask for the output lanes
 template<typename showPolicy, int LANES=1, uint32_t MASK=0xFFFFFFFF>
@@ -153,9 +174,9 @@ public:
 
 
 /* ESP32 RMT clockless controller
-  this is a stripped template of ClocklessController from FastLED libraru that does not include
-  gpio number as template parameter but accept it as a class constructtor parameter.
-  This allowing to create an instance with run-time definable gpio
+  this is a stripped template of ClocklessController from FastLED library that does not include
+  gpio number as template parameter but accept it as a class constructor parameter.
+  This allowing to create an instance with run-time definable gpio and color order
 */
 template <int XTRA0 = 0, bool FLIP = false, int WAIT_TIME = 5>
 class ESP32RMT_ClocklessController : public CPixelLEDControllerUnordered<ESP32RMT_ClocklessController<XTRA0, FLIP, WAIT_TIME>>
@@ -248,7 +269,7 @@ protected:
 
 
 // WS2812 - 250ns, 625ns, 375ns
-// a reduced template for WS2812Controller800Khz that instatiates ESP32's RMT clockless controller with run-time defined gpio number
+// a reduced template for WS2812Controller800Khz that instatiates ESP32's RMT clockless controller with run-time defined gpio number and color order
 class ESP32RMT_WS2812Controller800Khz : public ESP32RMT_ClocklessController<> {
 public:
     ESP32RMT_WS2812Controller800Khz(uint8_t pin, EOrder rgb_order) : ESP32RMT_ClocklessController(pin, rgb_order, C_NS(250), C_NS(625), C_NS(375)) {}
@@ -256,7 +277,7 @@ public:
 
 /*
  WS2812 controller class @ 800 KHz.
- with RTM run-time defined gpio
+ with RTM run-time defined gpio and color order
 */
 class ESP32RMT_WS2812B : public ESP32RMT_WS2812Controller800Khz {
 public:
