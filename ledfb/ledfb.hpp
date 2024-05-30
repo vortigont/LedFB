@@ -564,6 +564,7 @@ public:
  * @brief abstract overlay engine
  * it works as a renderer for canvas, creating/mixing overlay/back buffer with canvas
  */
+template <class COLOR_TYPE = CRGB>
 class DisplayEngine {
 
 public:
@@ -575,9 +576,9 @@ public:
      * 
      * @return PixelDataBuffer* 
      */
-    virtual std::shared_ptr<PixelDataBuffer<CRGB>> getCanvas() = 0;
+    virtual std::shared_ptr<PixelDataBuffer<COLOR_TYPE>> getCanvas() = 0;
 
-    virtual std::shared_ptr<PixelDataBuffer<CRGB>> getOverlay() = 0;
+    virtual std::shared_ptr<PixelDataBuffer<COLOR_TYPE>> getOverlay() = 0;
 
     /**
      * @brief protect canvs buffer from altering by overlay mixing
@@ -610,7 +611,7 @@ public:
     virtual uint8_t brightness(uint8_t b){ return 0; };
 
 protected:
-    CRGB _transparent_color = CRGB::Black;
+    COLOR_TYPE _transparent_color{};
 
     /**
      * @brief flag that marks canvas buffer as persistent that should NOT be changed
@@ -627,7 +628,7 @@ protected:
  * 
  * @tparam RGB_ORDER 
  */
-class ESP32RMTDisplayEngine : public DisplayEngine {
+class ESP32RMTDisplayEngine : public DisplayEngine<CRGB> {
 protected:
     std::shared_ptr<CLedCDB>  canvas;      // canvas buffer where background data is stored
     std::unique_ptr<CLedCDB>  backbuff;    // back buffer, where we will mix data with overlay before sending to LEDs
@@ -724,7 +725,7 @@ private:
  * @brief Display engine based in HUB75 RGB panel
  * 
  */
-class ESP32HUB75_DisplayEngine : public DisplayEngine {
+class ESP32HUB75_DisplayEngine : public DisplayEngine<CRGB> {
 protected:
     std::shared_ptr<HUB75PanelDB>  canvas;      // canvas buffer where background data is stored
     std::weak_ptr<PixelDataBuffer<CRGB>>    overlay;     // overlay buffer weak pointer
