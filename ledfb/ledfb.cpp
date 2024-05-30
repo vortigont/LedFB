@@ -258,7 +258,7 @@ std::shared_ptr<PixelDataBuffer<CRGB>> ESP32HUB75_DisplayEngine::getOverlay(){
     }
     return p;
 }
-#endif LEDFB_WITH_HUB75_I2S
+#endif // LEDFB_WITH_HUB75_I2S
 
 
 
@@ -362,4 +362,3 @@ void LedFB_GFX::drawPixel(int16_t x, int16_t y, CRGB color) {
 void LedFB_GFX::fillScreen(CRGB color) {
     std::visit( Overload{ [this, &color](const auto& variant_item) { _fillScreenCRGB(variant_item.get(), color); }, }, _fb);
 }
-

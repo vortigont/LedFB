@@ -302,7 +302,7 @@ protected:
     // pixel buffer storage
     std::shared_ptr<PixelDataBuffer<COLOR_TYPE>> buffer;
     // coordinate to buffer index mapper callback
-    transpose_t _xymap;
+    transpose_t _xymap = map_2d;
 
 public:
     // c-tor
@@ -788,7 +788,7 @@ template<class... Ts> Overload(Ts...) -> Overload<Ts...>;
 
 /**
  * @brief GFX class for LedFB
- * it provides Adafruit API for uderlaying buffer with either CRGB and uint16 color container
+ * it provides Adafruit API for uderlaying buffer with either CRGB or uint16 color container
  * 
  */
 class LedFB_GFX : public Adafruit_GFX {
