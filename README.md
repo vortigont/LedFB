@@ -9,4 +9,4 @@ This lib is used in [FireLamp_JeeUI](https://github.com/vortigont/FireLamp_JeeUI
 
 ### ESP32-RMT engine wrapper
 FastLED lib due to templated constructors it does not allows run-time definable gpio selection and color ordering for WS2812 stripes.
-Ref issues: [#282](https://github.com/FastLED/FastLED/issues/282), [#826](https://github.com/FastLED/FastLED/issues/826), [#1594](https://github.com/FastLED/FastLED/issues/1594)
+Ref issues: [#282](https://github.com/FastLED/FastLED/issues/282), [#826](https://github.com/FastLED/FastLED/issues/826), [#1594](https://github.com/FastLED/FastLED/issues/1594), [solution](https://community.alexgyver.ru/threads/fastled-nastraivaem-piny-i-porjadok-cvetov-na-letu-ili-kak-rabotat-s-nasledovaniem-klassov-v-c.9732/)

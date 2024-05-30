@@ -2,7 +2,7 @@
     "name": "LedFB",
     "frameworks": "arduino",
     "platforms": ["*"],
-    "version": "0.1.0",
+    "version": "1.0.0",
     "keywords": "fastled, adafruitgfx, ws2812, led",
     "description": "template-based LED framebuffer library for FastLED / AdafruitGFX API",
     "url": "https://github.com/vortigont/LedFB",
