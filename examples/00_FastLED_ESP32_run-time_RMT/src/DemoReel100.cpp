@@ -12,10 +12,10 @@ This example is based on FastLED's DemoReel100 - https://github.com/FastLED/Fast
   (at least for time of writing)
   Ref issues: FastLED/FastLED#282, FastLED/FastLED#826, FastLED/FastLED#1594
 
-  This lib provides a simple wrapper classes over derived from FastLED that allows to work-around this limitation
-  and let use run-time definable gpio and color order selection for ws2812 strips on ESP32 family chips.
+  This lib provides simple wrapper classes derived from FastLED that allows to work-around this limitation
+  and use run-time definable gpio and color order selection for ws2812 strips on ESP32 family chips.
 
-  Other types of MCUs/stripes could also (possibly) be implemented in the same manner, I just nad no need for this yet.
+  Other types of MCUs/stripes could also (possibly) be implemented in the same manner, I just had no need for this yet.
 
   You can build this example with PlatformIO's `pio run` command
 
@@ -23,7 +23,7 @@ This example is based on FastLED's DemoReel100 - https://github.com/FastLED/Fast
 
 
 /*
-  To use thism you do not even need to install full LedFB lib, just pick only one file from there 'w2812-rmt.hpp' (https://github.com/vortigont/LedFB/blob/main/ledfb/w2812-rmt.hpp)
+  To use this you do not even need to install full LedFB lib, just pick only one header file from there 'w2812-rmt.hpp' (https://github.com/vortigont/LedFB/blob/main/ledfb/w2812-rmt.hpp)
   and drop it into your project's dir
   Then include it instead of "FastLED.h" (or after "FastLED.h")
 */ 
@@ -37,8 +37,8 @@ FASTLED_USING_NAMESPACE
 
 /*
 
-  Here what was defined on the original sketch of demoReel,
-  those defines will hardcode strip's data pin, color order, number of leds and a static buffer for the strip.
+  Here what was defined in the original sketch of demoReel,
+  those defines will hardcode strip's data pin, color order, number of leds and static buffer for the strip.
   We will skip it for now
 
 #define DATA_PIN    3
@@ -59,19 +59,19 @@ EOrder color_order;
 int num_of_leds;
 // this is the pointer to our to be created LED buffer, currently pointing to nowhere
 CRGB* CRGB_buffer = nullptr;
-// and the most important part - a pointer to a to be created dirived class for ESP32RMT engine
+// and the most important part - a pointer to a to be created derived class for ESP32RMT engine
 ESP32RMT_WS2812B *wsstrip  = nullptr;
 
 // Arduino's setup
 void setup() {
 
-  // here we will pretend that we loaded our configuration for a EEPROM/NVS or json config file
+  // here we will pretend that we loaded our configuration from EEPROM/NVS or json config file
   // but just for simplicity in this example we will use some static values
 
-  // let's load a gpio value of 0
+  // let's load gpio number for attached strip as value of 0
   gpio_num = 0;
 
-  // color order we will use GRB (most common one)
+  // color order we will use - GRB (most common one)
   color_order = GRB;
 
   // and num of leds will be 128
