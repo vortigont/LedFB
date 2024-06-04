@@ -10,11 +10,21 @@
 #include <memory>
 #include <variant>
 #include <functional>
+#include <list>
 #include "w2812-rmt.hpp"
-#include <Adafruit_GFX.h>
+#include "Arduino_GFX.h"
 #ifdef LEDFB_WITH_HUB75_I2S
   #include "ESP32-HUB75-MatrixPanel-I2S-DMA.h"
 #endif
+
+/**
+ * @brief structure for 2D overlay texture callback object
+ * 
+ */
+struct texture_ovr_cb_t {
+    std::function <void (void)> callback;
+};
+
 
 /**
  * @brief Base class with CRGB data storage that acts as a pixel buffer storage
@@ -567,9 +577,15 @@ public:
 template <class COLOR_TYPE = CRGB>
 class DisplayEngine {
 
+protected:
+    virtual void engine_show() = 0;
+
 public:
     // virtual d-tor
     virtual ~DisplayEngine(){};
+
+    std::list<texture_ovr_cb_t> _stack;
+
 
     /**
      * @brief Get a reference to canvas buffer
@@ -593,7 +609,7 @@ public:
      * it will draw a canvas content (or render an overlay over it if necessary)
      * 
      */
-    virtual void show(){};
+    void show();
 
     /**
      * @brief wipe buffers and draw a blank screen
@@ -619,6 +635,7 @@ protected:
      * 
      */
     bool _canvas_protect = false;
+
 };
 
 
@@ -638,6 +655,13 @@ protected:
     CLEDController *cled = nullptr;
     // led strip driver
     ESP32RMT_WS2812B *wsstrip;
+
+    /**
+     * @brief show buffer content on display
+     * it will draw a canvas content (or render an overlay over it if necessary)
+     * 
+     */
+    void engine_show() override;
 
 public:
     /**
@@ -683,13 +707,6 @@ public:
     std::shared_ptr<PixelDataBuffer<CRGB>> getOverlay() override;
 
     /**
-     * @brief show buffer content on display
-     * it will draw a canvas content (or render an overlay over it if necessary)
-     * 
-     */
-    void show() override;
-
-    /**
      * @brief wipe buffers and draw a blank screen
      * 
      */
@@ -730,6 +747,13 @@ protected:
     std::shared_ptr<HUB75PanelDB>  canvas;      // canvas buffer where background data is stored
     std::weak_ptr<PixelDataBuffer<CRGB>>    overlay;     // overlay buffer weak pointer
 
+    /**
+     * @brief show buffer content on display
+     * it will draw a canvas content (or render an overlay over it if necessary)
+     * 
+     */
+    void engine_show() override;
+
 public:
     /**
      * @brief Construct a new Overlay Engine object
@@ -753,13 +777,6 @@ public:
      * @return std::shared_ptr<PixelDataBuffer<CRGB>> 
      */
     std::shared_ptr<PixelDataBuffer<CRGB>> getOverlay() override;
-
-    /**
-     * @brief show buffer content on display
-     * it will draw a canvas content (or render an overlay over it if necessary)
-     * 
-     */
-    void show() override;
 
     /**
      * @brief wipe buffers and draw a blank screen
@@ -792,7 +809,7 @@ template<class... Ts> Overload(Ts...) -> Overload<Ts...>;
  * it provides Adafruit API for uderlaying buffer with either CRGB or uint16 color container
  * 
  */
-class LedFB_GFX : public Adafruit_GFX {
+class LedFB_GFX : public Arduino_GFX {
 
     void _drawPixelCRGB( LedFB<CRGB> *b, int16_t x, int16_t y, CRGB c){ b->at(x,y) = c; };
     void _drawPixelCRGB( LedFB<uint16_t> *b, int16_t x, int16_t y, CRGB c){ b->at(x,y) = colorCRGBto16(c); };
@@ -823,23 +840,32 @@ public:
      * 
      * @param buff - a shared pointer to the LedFB object
      */
-    LedFB_GFX(std::shared_ptr< LedFB<CRGB> > buff) : Adafruit_GFX(buff->w(), buff->h()), _fb(buff) {}
+    LedFB_GFX(std::shared_ptr< LedFB<CRGB> > buff) : Arduino_GFX(buff->w(), buff->h()), _fb(buff) {}
 
     /**
      * @brief Construct a new LedFB_GFX object from a LedFB<uint16_t> 16 bit color
      * 
      * @param buff - a shared pointer to the LedFB object
      */
-    LedFB_GFX(std::shared_ptr< LedFB<uint16_t> > buff) : Adafruit_GFX(buff->w(), buff->h()), _fb(buff) {}
+    LedFB_GFX(std::shared_ptr< LedFB<uint16_t> > buff) : Arduino_GFX(buff->w(), buff->h()), _fb(buff) {}
 
     virtual ~LedFB_GFX() = default;
 
-    // Adafruit overrides
-    void drawPixel(int16_t x, int16_t y, uint16_t color) override;
-    void fillScreen(uint16_t color) override;
+
+
+    // Arduino GFX overrides
+    bool begin(int32_t speed = GFX_NOT_DEFINED) override { return true; };
+    void writePixelPreclipped(int16_t x, int16_t y, uint16_t color) override;
+
+    void writePixelPreclipped(int16_t x, int16_t y, CRGB color);
+
+
+    __attribute__((always_inline)) inline void writePixel(int16_t x, int16_t y, uint16_t color){ writePixelPreclipped(x, y, color); };
+
+    void fillScreen(uint16_t color);// override;
 
     // Adafruit-like methods for CRGB
-    void drawPixel(int16_t x, int16_t y, CRGB color);
+    //void writePixel(int16_t x, int16_t y, CRGB color);
     void fillScreen(CRGB color);
 
     // Color conversion
@@ -849,6 +875,13 @@ public:
 
     // Additional methods
 };
+
+
+
+
+
+
+
 
 
 
@@ -944,3 +977,17 @@ void LedFB<COLOR_TYPE>::dim(uint8_t v){
     }
     // todo: implement fade for other color types
 }
+
+
+
+//  ************  DisplayEngine ************
+template <class COLOR_TYPE>
+void DisplayEngine<COLOR_TYPE>::show(){
+  for (auto &s : _stack)
+    s.callback();
+
+  // call derivative engine show function
+  engine_show();
+}
+
+

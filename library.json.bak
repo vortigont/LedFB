@@ -21,7 +21,9 @@
     },
     "dependencies":
     [
-        {"owner":"FastLED", "name": "FastLED"}
+        {"owner":"FastLED", "name": "FastLED"},
+        {"owner":"adafruit", "name": "Adafruit GFX Library"},
+        {"owner":"adafruit", "name": "Adafruit BusIO"}
     ],
     "build": {
         "srcDir": "ledfb",

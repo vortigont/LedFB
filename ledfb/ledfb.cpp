@@ -130,7 +130,7 @@ bool ESP32RMTDisplayEngine::attachCanvas(std::shared_ptr<CLedCDB> &fb){
     return false;   // somethign went either wrong or already been setup 
 }
 
-void ESP32RMTDisplayEngine::show(){
+void ESP32RMTDisplayEngine::engine_show(){
     if (!overlay.expired() && _canvas_protect && !backbuff)    // check if I need to switch to back buff due to canvas persistency and overlay data present 
         _switch_to_bb();
 
@@ -205,8 +205,6 @@ uint8_t ESP32RMTDisplayEngine::brightness(uint8_t b){
 #endif  //ifdef ESP32
 
 
-
-
 #ifdef LEDFB_WITH_HUB75_I2S
 //  *** HUB75 Panel implementation ***
 void HUB75PanelDB::show(){
@@ -233,7 +231,7 @@ void ESP32HUB75_DisplayEngine::clear(){
 
 }
 
-void ESP32HUB75_DisplayEngine::show(){
+void ESP32HUB75_DisplayEngine::engine_show(){
     if (overlay.expired())
         return canvas->show();
 
@@ -302,7 +300,7 @@ size_t LedTiles::tiled_transpose(unsigned w, unsigned h, unsigned x, unsigned y)
     //Serial.printf("tiledXY:%d,%d, tnum:%d, pxit:%d, idx:%d\n", tile_x, tile_y, tile_num, px_in_tile, i);
     return i;
 }
-
+/*
 void LedFB_GFX::drawPixel(int16_t x, int16_t y, uint16_t color) {
     int16_t t;
     switch (rotation) {
@@ -329,15 +327,6 @@ void LedFB_GFX::drawPixel(int16_t x, int16_t y, uint16_t color) {
     );
 }
 
-void LedFB_GFX::fillScreen(uint16_t color) {
-    std::visit(
-        Overload {
-            [this, &color](const auto& variant_item) { _fillScreenC16(variant_item.get(), color); },
-        },
-        _fb
-    );
-}
-
 void LedFB_GFX::drawPixel(int16_t x, int16_t y, CRGB color) {
     int16_t t;
     switch (rotation) {
@@ -358,7 +347,47 @@ void LedFB_GFX::drawPixel(int16_t x, int16_t y, CRGB color) {
     }
     std::visit( Overload{ [this, &x, &y, &color](const auto& variant_item) { _drawPixelCRGB(variant_item.get(), x,y,color); }, }, _fb);
 }
+*/
+void LedFB_GFX::fillScreen(uint16_t color) {
+    std::visit(
+        Overload {
+            [this, &color](const auto& variant_item) { _fillScreenC16(variant_item.get(), color); },
+        },
+        _fb
+    );
+}
 
 void LedFB_GFX::fillScreen(CRGB color) {
     std::visit( Overload{ [this, &color](const auto& variant_item) { _fillScreenCRGB(variant_item.get(), color); }, }, _fb);
 }
+
+void LedFB_GFX::writePixelPreclipped(int16_t x, int16_t y, uint16_t color){ 
+  int16_t t;
+  switch (_rotation) {
+  case 1:
+      t = x;
+      x = width() - 1 - y;
+      y = t;
+      break;
+  case 2:
+      x = width() - 1 - x;
+      y = height() - 1 - y;
+      break;
+  case 3:
+      t = x;
+      x = y;
+      y = height() - 1 - t;
+      break;
+  }
+
+  std::visit(
+      Overload {
+          [this, &x, &y, &color](const auto& variant_item) { _drawPixelC16(variant_item.get(), x,y,color); },
+      },
+      _fb
+  );
+};
+
+void LedFB_GFX::writePixelPreclipped(int16_t x, int16_t y, CRGB color){ 
+  std::visit( Overload{ [this, &x, &y, &color](const auto& variant_item) { _drawPixelCRGB(variant_item.get(), x,y,color); }, }, _fb);
+};
