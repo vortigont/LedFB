@@ -239,7 +239,7 @@ void ESP32HUB75_DisplayEngine::engine_show(){
     auto ovr = overlay.lock();
     if (canvas->size() != ovr->size()) return;  // a safe-check for buffer sizes
 
-    // draw non key-color pixels from canvas, otherwise from canvas
+    // draw non key-color pixels from canvas, otherwise from overlay
     for (size_t i=0; i != canvas->size(); ++i ){
         CRGB c = ovr->at(i) == _transparent_color ? canvas->at(i) : ovr->at(i);
 

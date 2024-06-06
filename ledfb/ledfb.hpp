@@ -17,14 +17,6 @@
   #include "ESP32-HUB75-MatrixPanel-I2S-DMA.h"
 #endif
 
-/**
- * @brief structure for 2D overlay texture callback object
- * 
- */
-struct texture_ovr_cb_t {
-    std::function <void (void)> callback;
-};
-
 
 /**
  * @brief Base class with CRGB data storage that acts as a pixel buffer storage
@@ -570,6 +562,16 @@ public:
 };
 
 
+
+/**
+ * @brief structure for 2D overlay texture callback object
+ * 
+ */
+template <class COLOR_TYPE>
+struct texture_ovr_cb_t {
+    std::function <void (LedFB<COLOR_TYPE>* canvas)> callback;
+};
+
 /**
  * @brief abstract overlay engine
  * it works as a renderer for canvas, creating/mixing overlay/back buffer with canvas
@@ -584,7 +586,8 @@ public:
     // virtual d-tor
     virtual ~DisplayEngine(){};
 
-    std::list<texture_ovr_cb_t> _stack;
+
+    std::list< texture_ovr_cb_t<COLOR_TYPE> > _stack;
 
 
     /**
@@ -768,6 +771,7 @@ public:
      */
     ESP32HUB75_DisplayEngine(std::shared_ptr<HUB75PanelDB> canvas);
 
+    //std::shared_ptr<PixelDataBuffer<CRGB>> getCanvas() override { return canvas; }
     std::shared_ptr<PixelDataBuffer<CRGB>> getCanvas() override { return canvas; }
 
     /**
@@ -887,9 +891,6 @@ public:
 
 
 
-
-
-
 //  *** TEMPLATES IMPLEMENTATION FOLLOWS *** //
 
 // copy via assignment
@@ -984,7 +985,7 @@ void LedFB<COLOR_TYPE>::dim(uint8_t v){
 template <class COLOR_TYPE>
 void DisplayEngine<COLOR_TYPE>::show(){
   for (auto &s : _stack)
-    s.callback();
+    s.callback( getCanvas().get() );
 
   // call derivative engine show function
   engine_show();
