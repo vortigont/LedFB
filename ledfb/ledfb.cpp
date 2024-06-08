@@ -102,14 +102,15 @@ ESP32RMTDisplayEngine::ESP32RMTDisplayEngine(int gpio, EOrder rgb_order){
 }
 
 ESP32RMTDisplayEngine::ESP32RMTDisplayEngine(int gpio, EOrder rgb_order, std::shared_ptr<CLedCDB> buffer) : canvas(buffer) {
-    wsstrip = new(std::nothrow) ESP32RMT_WS2812B(gpio, rgb_order);
-    if (wsstrip && canvas){
-        // attach buffer to RMT engine
-        cled = &FastLED.addLeds(wsstrip, canvas->data().data(), canvas->size());
-        // hook framebuffer to contoller
-        canvas->bind(cled);
-        show();
-    }
+  wsstrip = new(std::nothrow) ESP32RMT_WS2812B(gpio, rgb_order);
+  if (wsstrip && canvas){
+      // attach buffer to RMT engine
+      cled = &FastLED.addLeds(wsstrip, canvas->data().data(), canvas->size());
+      // hook framebuffer to contoller
+      canvas->bind(cled);
+      FastLED.show();
+      //show();
+  }
 }
 
 bool ESP32RMTDisplayEngine::attachCanvas(std::shared_ptr<CLedCDB> &fb){
@@ -123,13 +124,18 @@ bool ESP32RMTDisplayEngine::attachCanvas(std::shared_ptr<CLedCDB> &fb){
         cled = &FastLED.addLeds(wsstrip, canvas->data().data(), canvas->size());
         // hook framebuffer to contoller
         canvas->bind(cled);
-        show();
+        FastLED.show();
         return true;
     }
 
-    return false;   // somethign went either wrong or already been setup 
+    return false;   // something went either wrong or already been setup 
 }
 
+void ESP32RMTDisplayEngine::engine_show(){
+  FastLED.show();
+}
+
+/*
 void ESP32RMTDisplayEngine::engine_show(){
     if (!overlay.expired() && _canvas_protect && !backbuff)    // check if I need to switch to back buff due to canvas persistency and overlay data present 
         _switch_to_bb();
@@ -144,20 +150,21 @@ void ESP32RMTDisplayEngine::engine_show(){
     if (!overlay.expired()) _ovr_overlap(); // apply overlay to either canvas or back buffer, if bb is present
     FastLED.show();
 }
-
+*/
 void ESP32RMTDisplayEngine::clear(){
     if (!canvas) return;
     canvas->clear();
     if (backbuff){
+      backbuff->clear();
         // release BackBuffer, it will be recreated if required
-        canvas->rebind(*backbuff.get());
-        backbuff.reset();
+        //canvas->rebind(*backbuff.get());
+        //backbuff.reset();
     }
-    auto ovr = overlay.lock();
-    if (ovr) ovr->clear();          // clear overlay
+    //auto ovr = overlay.lock();
+    //if (ovr) ovr->clear();          // clear overlay
     FastLED.show();
 }
-
+/*
 std::shared_ptr<PixelDataBuffer<CRGB>> ESP32RMTDisplayEngine::getOverlay(){
     auto p = overlay.lock();
     if (!p){
@@ -197,40 +204,92 @@ void ESP32RMTDisplayEngine::_switch_to_bb(){
     backbuff = std::make_unique<CLedCDB>(canvas->size());
     backbuff->rebind(*canvas);    // switch backend binding
 }
-
+*/
 uint8_t ESP32RMTDisplayEngine::brightness(uint8_t b){
     FastLED.setBrightness(b);
     return FastLED.getBrightness();
 }
+
+void ESP32RMTDisplayEngine::doubleBuffer(bool active){
+  if (active && !backbuff){
+    backbuff = std::make_shared<CLedCDB>(canvas->size());
+    return;
+  }
+  // release back buffer
+  if (!active && backbuff){
+    if (backbuff->isBound())
+      canvas->rebind(*backbuff);
+
+    backbuff.reset();
+    _active_buff = true;
+  }
+}
+
+void ESP32RMTDisplayEngine::flipBuffer(){
+  if (backbuff)
+    canvas->swap(*backbuff);
+}
+
+bool ESP32RMTDisplayEngine::toggleBuffer(){
+  if (backbuff){
+    canvas->rebind(*backbuff);
+    _active_buff = !_active_buff;
+  }
+
+  return _active_buff;
+}
+
+void ESP32RMTDisplayEngine::copyBack2Front(){
+  if (backbuff){
+    canvas->data() = backbuff->data();
+  }
+}
+
+void ESP32RMTDisplayEngine::copyFront2Back(){
+  if (backbuff){
+    backbuff->data() = canvas->data();
+  }
+}
+
 #endif  //ifdef ESP32
 
 
-#ifdef LEDFB_WITH_HUB75_I2S
+//  **********************************
 //  *** HUB75 Panel implementation ***
+#ifdef LEDFB_WITH_HUB75_I2S
 void HUB75PanelDB::show(){
     for (size_t i = 0; i != PixelDataBuffer<CRGB>::fb.size(); ++i){
         hub75.drawPixelRGB888( i % hub75.getCfg().mx_width, i / hub75.getCfg().mx_width, PixelDataBuffer<CRGB>::fb.at(i).r, PixelDataBuffer<CRGB>::fb.at(i).g, PixelDataBuffer<CRGB>::fb.at(i).b);
     }
 }
-/*
-void HUB75PanelDB::clear(){
-    PixelDataBuffer::clear();
-    hub75.clearScreen();
-}
-*/
 
-ESP32HUB75_DisplayEngine::ESP32HUB75_DisplayEngine(const HUB75_I2S_CFG &config) : canvas(new HUB75PanelDB(config)) {
-    canvas->hub75.begin();
+
+ESP32HUB75_DisplayEngine::ESP32HUB75_DisplayEngine(const HUB75_I2S_CFG &config) : hub75(config){
+  canvas = std::make_shared<PixelDataBuffer<CRGB>>(config.mx_height * config.mx_height);
+  hub75.begin();
 }
 
 void ESP32HUB75_DisplayEngine::clear(){
-    if (!canvas) return;
-    canvas->wipe();                 // use fast DMA wipe
-    auto ovr = overlay.lock();
-    if (ovr) ovr->clear();          // clear overlay
-
+  if (canvas) canvas->clear();
+  if (backbuff) backbuff->clear();
+  hub75.clearScreen();
 }
 
+void ESP32HUB75_DisplayEngine::engine_show(){
+  if (_active_buff){
+    for (size_t i = 0; i != canvas->size(); ++i){
+      hub75.drawPixelRGB888( i % hub75.getCfg().mx_width, i / hub75.getCfg().mx_width, (*canvas)[i].r, (*canvas)[i].g, (*canvas)[i].b);
+    }
+  } else {
+    for (size_t i = 0; i != backbuff->size(); ++i){
+      hub75.drawPixelRGB888( i % hub75.getCfg().mx_width, i / hub75.getCfg().mx_width, (*backbuff)[i].r, (*backbuff)[i].g, (*backbuff)[i].b);
+    }
+  }
+
+//  for (auto &s : _stack)
+//    s.callback( getCanvas().get() );
+}
+/*
 void ESP32HUB75_DisplayEngine::engine_show(){
     if (overlay.expired())
         return canvas->show();
@@ -255,7 +314,45 @@ std::shared_ptr<PixelDataBuffer<CRGB>> ESP32HUB75_DisplayEngine::getOverlay(){
         overlay = p;
     }
     return p;
+}*/
+
+void ESP32HUB75_DisplayEngine::doubleBuffer(bool active){
+  if (active && !backbuff){
+    backbuff = std::make_shared<PixelDataBuffer<CRGB>>(canvas->size());
+    return;
+  }
+
+  // release back buffer
+  if (!active && backbuff){
+    backbuff.reset();
+    _active_buff = true;
+  }
 }
+
+void ESP32HUB75_DisplayEngine::flipBuffer(){
+  if (backbuff)
+    canvas->swap(*backbuff);
+}
+
+bool ESP32HUB75_DisplayEngine::toggleBuffer(){
+  if (backbuff)
+    _active_buff = !_active_buff;
+
+  return _active_buff;
+}
+
+void ESP32HUB75_DisplayEngine::copyBack2Front(){
+  if (backbuff){
+    *canvas = *backbuff;
+  }
+}
+
+void ESP32HUB75_DisplayEngine::copyFront2Back(){
+  if (backbuff){
+    *backbuff = *canvas;
+  }
+}
+
 #endif // LEDFB_WITH_HUB75_I2S
 
 
@@ -321,7 +418,7 @@ void LedFB_GFX::drawPixel(int16_t x, int16_t y, uint16_t color) {
     }
     std::visit(
         Overload {
-            [this, &x, &y, &color](const auto& variant_item) { _drawPixelC16(variant_item.get(), x,y,color); },
+            [this, &x, &y, &color](const auto& variant_item) { _drawPixel565(variant_item.get(), x,y,color); },
         },
         _fb
     );
@@ -351,7 +448,7 @@ void LedFB_GFX::drawPixel(int16_t x, int16_t y, CRGB color) {
 void LedFB_GFX::fillScreen(uint16_t color) {
     std::visit(
         Overload {
-            [this, &color](const auto& variant_item) { _fillScreenC16(variant_item.get(), color); },
+            [this, &color](const auto& variant_item) { _fillScreen565(variant_item.get(), color); },
         },
         _fb
     );
@@ -382,12 +479,97 @@ void LedFB_GFX::writePixelPreclipped(int16_t x, int16_t y, uint16_t color){
 
   std::visit(
       Overload {
-          [this, &x, &y, &color](const auto& variant_item) { _drawPixelC16(variant_item.get(), x,y,color); },
+          [this, &x, &y, &color](const auto& variant_item) { _drawPixel565(variant_item.get(), x,y,color); },
       },
       _fb
   );
 };
 
 void LedFB_GFX::writePixelPreclipped(int16_t x, int16_t y, CRGB color){ 
+  int16_t t;
+  switch (_rotation) {
+  case 1:
+      t = x;
+      x = width() - 1 - y;
+      y = t;
+      break;
+  case 2:
+      x = width() - 1 - x;
+      y = height() - 1 - y;
+      break;
+  case 3:
+      t = x;
+      x = y;
+      y = height() - 1 - t;
+      break;
+  }
+
   std::visit( Overload{ [this, &x, &y, &color](const auto& variant_item) { _drawPixelCRGB(variant_item.get(), x,y,color); }, }, _fb);
 };
+
+void LedFB_GFX::blendBitmap(int16_t x, int16_t y,
+                    const uint8_t* bitmap, int16_t w, int16_t h,
+                    uint16_t front_color, uint8_t front_alpha,
+                    uint16_t back_color, uint8_t back_alpha){
+
+  int16_t byteWidth = (w + 7) / 8; // Bitmap scanline pad = whole byte
+  uint8_t byte = 0;
+
+  //startWrite();
+  for (int16_t j = 0; j < h; j++, y++)
+  {
+    for (int16_t i = 0; i < w; i++)
+    {
+      if (i & 7)
+        byte <<= 1;
+      else
+        byte = bitmap[j * byteWidth + i / 8];
+
+      int16_t __x = x+i;
+      if (byte & 0x80){
+        std::visit( Overload{ [this, &__x, &y, &front_color, &front_alpha](const auto& variant_item) { _nblend565(variant_item.get(), __x,y,front_color,front_alpha); }, }, _fb);
+      } else {
+        if (back_alpha != 255)  // skip transparent background pixels
+          std::visit( Overload{ [this, &__x, &y, &back_color, &back_alpha](const auto& variant_item) { _nblend565(variant_item.get(), __x,y,back_color,back_alpha); }, }, _fb);
+      }
+
+      //nblend(canvas->at( x+i, y), byte & 0x80 ? CRGB::Red : CRGB::White, byte & 0x80 ? 208 : 5);  // = alphaBlend(fb->at(x+i, y), byte & 0x80 ? CRGB::Blue : CRGB::Gray,  byte & 0x80 ? 5 : 250 );
+      //color::alphaBlendRGB565
+    }
+  }
+  //endWrite();
+}
+
+void LedFB_GFX::fadeBitmap(int16_t x, int16_t y,
+                    const uint8_t* bitmap, int16_t w, int16_t h,
+                    uint16_t front_color, uint8_t fadeBy){
+  int16_t byteWidth = (w + 7) / 8; // Bitmap scanline pad = whole byte
+  uint8_t byte = 0;
+
+  //startWrite();
+  for (int16_t j = 0; j < h; j++, y++)
+  {
+    for (int16_t i = 0; i < w; i++)
+    {
+      if (i & 7)
+        byte <<= 1;
+      else
+        byte = bitmap[j * byteWidth + i / 8];
+
+      int16_t __x = x+i;
+      if (byte & 0x80){
+        writePixel(__x, y, colorCRGB(front_color));
+      } else {
+        std::visit( Overload{ [this, &__x, &y, &fadeBy](const auto& variant_item) { _nscale8(variant_item.get(), __x,y,fadeBy); }, }, _fb);
+      }
+    }
+  }
+  //endWrite();
+}
+
+void LedFB_GFX::_nscale8( LedFB<uint16_t> *b, int16_t x, int16_t y, uint8_t fadeBy){
+  CRGB c(colorCRGB(b->at(x,y)));
+  c.nscale8(fadeBy);
+  b->at(x,y) = color565(c);
+}
+

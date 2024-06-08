@@ -6,6 +6,7 @@
 */
 
 #pragma once
+#include "colormath.h"
 #include <vector>
 #include <memory>
 #include <variant>
@@ -414,7 +415,7 @@ public:
 
     /**
      * @brief apply FastLED fadeToBlackBy() func to buffer
-     * 
+     * same as dim(255 - v)
      * @param v 
      */
     void fade(uint8_t v);
@@ -564,15 +565,6 @@ public:
 
 
 /**
- * @brief structure for 2D overlay texture callback object
- * 
- */
-template <class COLOR_TYPE>
-struct texture_ovr_cb_t {
-    std::function <void (LedFB<COLOR_TYPE>* canvas)> callback;
-};
-
-/**
  * @brief abstract overlay engine
  * it works as a renderer for canvas, creating/mixing overlay/back buffer with canvas
  */
@@ -586,18 +578,14 @@ public:
     // virtual d-tor
     virtual ~DisplayEngine(){};
 
-
-    std::list< texture_ovr_cb_t<COLOR_TYPE> > _stack;
-
-
     /**
      * @brief Get a reference to canvas buffer
      * 
      * @return PixelDataBuffer* 
      */
-    virtual std::shared_ptr<PixelDataBuffer<COLOR_TYPE>> getCanvas() = 0;
+    //virtual std::shared_ptr<PixelDataBuffer<COLOR_TYPE>> getCanvas() = 0;
 
-    virtual std::shared_ptr<PixelDataBuffer<COLOR_TYPE>> getOverlay() = 0;
+    //virtual std::shared_ptr<PixelDataBuffer<COLOR_TYPE>> getOverlay() = 0;
 
     /**
      * @brief protect canvs buffer from altering by overlay mixing
@@ -605,7 +593,7 @@ public:
      * in that case Engine will try to use back buffer for overlay mixing (if implemented) 
      * @param v - true of false
      */
-    void canvasProtect(bool v){ _canvas_protect = v; };
+    //void canvasProtect(bool v){ _canvas_protect = v; };
 
     /**
      * @brief show buffer content on display
@@ -629,15 +617,53 @@ public:
      */
     virtual uint8_t brightness(uint8_t b){ return 0; };
 
-protected:
-    COLOR_TYPE _transparent_color{};
 
     /**
-     * @brief flag that marks canvas buffer as persistent that should NOT be changed
-     * by overlay mixing operations. In that case overlay is applied on top of a canvas copy in back buffer (if possible)
+     * @brief activate double buffer
+     * 
+     * @param active 
+     */
+    virtual void doubleBuffer(bool active) = 0;
+
+    /**
+     * @brief check if doublebuffer is enabled
+     * 
+     * @return true 
+     * @return false 
+     */
+    virtual bool doubleBuffer() const { return false; }
+
+    /**
+     * @brief swap content of front and back buffer
      * 
      */
-    bool _canvas_protect = false;
+    virtual void flipBuffer() = 0;
+
+    /**
+     * @brief switch rendering between back and front buffer
+     * 
+     * @return bool - true if acive buffer is front buffer, false if active buffer is back buffer
+     */
+    virtual bool toggleBuffer() = 0;
+
+    virtual std::shared_ptr<PixelDataBuffer<COLOR_TYPE>> getBuffer() = 0;
+
+    virtual std::shared_ptr<PixelDataBuffer<COLOR_TYPE>> getBackBuffer() = 0;
+
+    virtual std::shared_ptr<PixelDataBuffer<COLOR_TYPE>> getActiveBuffer() = 0;
+
+    /**
+     * @brief copy back buffer to front buffer
+     * 
+     */
+    virtual void copyBack2Front() = 0;
+
+    /**
+     * @brief copy front buffer to back buffer
+     * 
+     */
+    virtual void copyFront2Back() = 0;
+
 
 };
 
@@ -649,10 +675,11 @@ protected:
  * @tparam RGB_ORDER 
  */
 class ESP32RMTDisplayEngine : public DisplayEngine<CRGB> {
-protected:
+    // which buffer is active - true->canvas, false->backbuff
+    bool _active_buff{true};
     std::shared_ptr<CLedCDB>  canvas;      // canvas buffer where background data is stored
-    std::unique_ptr<CLedCDB>  backbuff;    // back buffer, where we will mix data with overlay before sending to LEDs
-    std::weak_ptr<CLedCDB>    overlay;     // overlay buffer weak pointer
+    std::shared_ptr<CLedCDB>  backbuff;    // back buffer, where we will mix data with overlay before sending to LEDs
+    //std::weak_ptr<CLedCDB>    overlay;     // overlay buffer weak pointer
 
     // FastLED controller
     CLEDController *cled = nullptr;
@@ -699,7 +726,7 @@ public:
      */
     bool attachCanvas(std::shared_ptr<CLedCDB> &fb);
 
-    std::shared_ptr<PixelDataBuffer<CRGB>> getCanvas() override { return canvas; }
+//    std::shared_ptr<PixelDataBuffer<CRGB>> getCanvas() override { return canvas; }
 
     /**
      * @brief Get a pointer to Overlay buffer
@@ -707,7 +734,7 @@ public:
      * 
      * @return std::shared_ptr<PixelDataBuffer<CRGB>> 
      */
-    std::shared_ptr<PixelDataBuffer<CRGB>> getOverlay() override;
+//    std::shared_ptr<PixelDataBuffer<CRGB>> getOverlay() override;
 
     /**
      * @brief wipe buffers and draw a blank screen
@@ -723,6 +750,46 @@ public:
      * @return uint8_t - current brightness level
      */
     uint8_t brightness(uint8_t b) override;
+
+    /**
+     * @brief activate double buffer
+     * 
+     * @param active 
+     */
+    void doubleBuffer(bool active) override;
+
+    bool doubleBuffer() const override { return backbuff.use_count(); }
+
+    /**
+     * @brief swap content of front and back buffer
+     * 
+     */
+    void flipBuffer() override;
+
+    /**
+     * @brief switch rendering between back and front buffer
+     * 
+     * @return bool - true if acive buffer is front buffer, false if active buffer is back buffer
+     */
+    bool toggleBuffer() override;
+
+    std::shared_ptr<PixelDataBuffer<CRGB>> getBuffer() override { return canvas; }
+
+    std::shared_ptr<PixelDataBuffer<CRGB>> getBackBuffer() override { return backbuff.use_count() ? backbuff : canvas; }
+
+    std::shared_ptr<PixelDataBuffer<CRGB>> getActiveBuffer() override { return _active_buff ? canvas : backbuff; };
+
+    /**
+     * @brief copy back buffer to front buffer
+     * 
+     */
+    void copyBack2Front() override;
+
+    /**
+     * @brief copy front buffer to back buffer
+     * 
+     */
+    void copyFront2Back() override;
 
 private:
     /**
@@ -746,9 +813,11 @@ private:
  * 
  */
 class ESP32HUB75_DisplayEngine : public DisplayEngine<CRGB> {
-protected:
-    std::shared_ptr<HUB75PanelDB>  canvas;      // canvas buffer where background data is stored
-    std::weak_ptr<PixelDataBuffer<CRGB>>    overlay;     // overlay buffer weak pointer
+    MatrixPanel_I2S_DMA hub75;
+    // which buffer is active - true->canvas, false->backbuff
+    bool _active_buff{true};
+    std::shared_ptr<PixelDataBuffer<CRGB>>  canvas;      // canvas buffer where background data is stored
+    std::shared_ptr<PixelDataBuffer<CRGB>>  backbuff;    // back buffer weak pointer
 
     /**
      * @brief show buffer content on display
@@ -772,7 +841,7 @@ public:
     ESP32HUB75_DisplayEngine(std::shared_ptr<HUB75PanelDB> canvas);
 
     //std::shared_ptr<PixelDataBuffer<CRGB>> getCanvas() override { return canvas; }
-    std::shared_ptr<PixelDataBuffer<CRGB>> getCanvas() override { return canvas; }
+    //std::shared_ptr<PixelDataBuffer<CRGB>> getCanvas() override { return canvas; }
 
     /**
      * @brief Get a pointer to Overlay buffer
@@ -780,7 +849,7 @@ public:
      * 
      * @return std::shared_ptr<PixelDataBuffer<CRGB>> 
      */
-    std::shared_ptr<PixelDataBuffer<CRGB>> getOverlay() override;
+    //std::shared_ptr<PixelDataBuffer<CRGB>> getOverlay() override;
 
     /**
      * @brief wipe buffers and draw a blank screen
@@ -795,8 +864,47 @@ public:
      * @param b - target brightness
      * @return uint8_t - current brightness level
      */
-    uint8_t brightness(uint8_t b) override { canvas->hub75.setBrightness(b); return b; };
+    uint8_t brightness(uint8_t b) override { hub75.setBrightness(b); return b; };
 
+    /**
+     * @brief activate double buffer
+     * 
+     * @param active 
+     */
+    void doubleBuffer(bool active) override;
+
+    bool doubleBuffer() const override { return backbuff.use_count(); }
+
+    /**
+     * @brief swap content of front and back buffer
+     * 
+     */
+    void flipBuffer() override;
+
+    /**
+     * @brief switch rendering between back and front buffer
+     * 
+     * @return bool - true if acive buffer is front buffer, false if active buffer is back buffer
+     */
+    bool toggleBuffer() override;
+
+    std::shared_ptr<PixelDataBuffer<CRGB>> getBuffer() override { return canvas; }
+
+    std::shared_ptr<PixelDataBuffer<CRGB>> getBackBuffer() override { return backbuff.use_count() ? backbuff : canvas; }
+
+    std::shared_ptr<PixelDataBuffer<CRGB>> getActiveBuffer() override { return _active_buff ? canvas : backbuff; };
+
+    /**
+     * @brief copy back buffer to front buffer
+     * 
+     */
+    void copyBack2Front() override;
+
+    /**
+     * @brief copy front buffer to back buffer
+     * 
+     */
+    void copyFront2Back() override;
 };
 #endif  // LEDFB_WITH_HUB75_I2S
 
@@ -814,25 +922,6 @@ template<class... Ts> Overload(Ts...) -> Overload<Ts...>;
  * 
  */
 class LedFB_GFX : public Arduino_GFX {
-
-    void _drawPixelCRGB( LedFB<CRGB> *b, int16_t x, int16_t y, CRGB c){ b->at(x,y) = c; };
-    void _drawPixelCRGB( LedFB<uint16_t> *b, int16_t x, int16_t y, CRGB c){ b->at(x,y) = colorCRGBto16(c); };
-
-    void _drawPixelC16( LedFB<CRGB> *b, int16_t x, int16_t y, uint16_t c){ b->at(x,y) = color16toCRGB(c); };
-    void _drawPixelC16( LedFB<uint16_t> *b, int16_t x, int16_t y, uint16_t c){ b->at(x,y) = c; };
-
-    void _fillScreenCRGB(LedFB<CRGB> *b, CRGB c){ b->fill(c); };
-    void _fillScreenCRGB(LedFB<uint16_t> *b, CRGB c){ b->fill(colorCRGBto16(c)); };
-
-    void _fillScreenC16(LedFB<CRGB> *b, uint16_t c){ b->fill(color16toCRGB(c)); };
-    void _fillScreenC16(LedFB<uint16_t> *b, uint16_t c){ b->fill(c); };
-
-/*
-    template<typename V, typename X, typename Y, typename C>
-    void _visit_drawPixelCRGB(const V& variant, X x, Y y, C color){
-        std::visit( Overload{ [&x, &y, &color](const auto& variant_item) { _drawPixelCRGB(variant_item, x, y, color); }, }, variant);
-    };
-*/
 
 protected:
     // LedFB container variant
@@ -863,21 +952,116 @@ public:
 
     void writePixelPreclipped(int16_t x, int16_t y, CRGB color);
 
-
+    // mapped writePixel methods
     __attribute__((always_inline)) inline void writePixel(int16_t x, int16_t y, uint16_t color){ writePixelPreclipped(x, y, color); };
+    __attribute__((always_inline)) inline void writePixel(int16_t x, int16_t y, CRGB color){ writePixelPreclipped(x, y, color); };
 
     void fillScreen(uint16_t color);// override;
 
     // Adafruit-like methods for CRGB
-    //void writePixel(int16_t x, int16_t y, CRGB color);
     void fillScreen(CRGB color);
 
+
+    // ***** Additional graphics functions *****
+
+    /**
+     * @brief Blend 1-bit image at the specified (x,y) position using alpha transparency
+     * 
+     * @param x Top left corner x coordinate
+     * @param y Top left corner y coordinate
+     * @param bitmap byte array with monochrome bitmap
+     * @param w Width of bitmap in pixels
+     * @param h Height of bitmap in pixels
+     * @param front_color 16-bit 5-6-5 Color to draw image with
+     * @param front_alpha image alpha transparency
+     * @param back_color 16-bit 5-6-5 Color to draw background with
+     * @param back_alpha image background alpha transparency
+     * @param invert interchange canvas and text
+     */
+    void blendBitmap(int16_t x, int16_t y,
+                    const uint8_t* bitmap, int16_t w, int16_t h,
+                    uint16_t front_color, uint8_t front_alpha,
+                    uint16_t back_color = 0, uint8_t back_alpha = 0);
+
+    /**
+     * @brief draw bitmap, fading background canvas by specified amount
+     * 
+     * @param x Top left corner x coordinate
+     * @param y Top left corner y coordinate
+     * @param bitmap byte array with monochrome bitmap
+     * @param w Width of bitmap in pixels
+     * @param h Height of bitmap in pixels
+     * @param front_color 16-bit 5-6-5 Color to draw image with
+     * @param fadeBy amount of fade applied to background
+     */
+    void fadeBitmap(int16_t x, int16_t y,
+                    const uint8_t* bitmap, int16_t w, int16_t h,
+                    uint16_t front_color, uint8_t fadeBy);
+
+
     // Color conversion
-    static CRGB color16toCRGB(uint16_t c){ return CRGB( ((c>>11 & 0x1f) * 527 + 23) >> 6, ((c>>5 & 0xfc) * 259 + 33) >> 6, ((c&0x1f) * 527 + 23) >> 6); }
-    static uint16_t colorCRGBto16(CRGB c){ return c.r >> 3 << 11 | c.g >> 2 << 5 | c.b >> 3; }
+    /**
+     * @brief Given RGB '565' format color, return expanded CRGB
+     * 
+     * @param c 
+     * @return CRGB 
+     */
+    static CRGB colorCRGB(uint16_t c){ return CRGB( ((c>>11 & 0x1f) * 527 + 23) >> 6, ((c>>5 & 0xfc) * 259 + 33) >> 6, ((c&0x1f) * 527 + 23) >> 6); }
+
+    /**
+     * @brief Given 24-bit CRGB, return a 'packed' 16-bit color value in '565' RGB format (5 bits red, 6 bits green, 5 bits blue).
+     * 
+     * @param c CRGB
+     * @return uint16_t 
+     */
+    static uint16_t color565(CRGB c){ return c.r >> 3 << 11 | c.g >> 2 << 5 | c.b >> 3; }
 
 
+protected:
     // Additional methods
+
+    void _drawPixelCRGB( LedFB<CRGB> *b, int16_t x, int16_t y, CRGB c){ b->at(x,y) = c; };
+    void _drawPixelCRGB( LedFB<uint16_t> *b, int16_t x, int16_t y, CRGB c){ b->at(x,y) = color565(c); };
+
+    void _drawPixel565( LedFB<CRGB> *b, int16_t x, int16_t y, uint16_t c){ b->at(x,y) = colorCRGB(c); };
+    void _drawPixel565( LedFB<uint16_t> *b, int16_t x, int16_t y, uint16_t c){ b->at(x,y) = c; };
+
+    void _fillScreenCRGB(LedFB<CRGB> *b, CRGB c){ b->fill(c); };
+    void _fillScreenCRGB(LedFB<uint16_t> *b, CRGB c){ b->fill(color565(c)); };
+
+    void _fillScreen565(LedFB<CRGB> *b, uint16_t c){ b->fill(colorCRGB(c)); };
+    void _fillScreen565(LedFB<uint16_t> *b, uint16_t c){ b->fill(c); };
+
+    void _nblendCRGB( LedFB<CRGB> *b, int16_t x, int16_t y, CRGB overlay, fract8 amountOfOverlay){ nblend( b->at(x,y), overlay, amountOfOverlay); };
+    void _nblendCRGB( LedFB<uint16_t> *b, int16_t x, int16_t y, CRGB overlay, fract8 amountOfOverlay){ b->at(x,y) = color::alphaBlendRGB565(color565(overlay), b->at(x,y), amountOfOverlay); };
+
+    void _nblend565( LedFB<CRGB> *b, int16_t x, int16_t y, uint16_t overlay, fract8 amountOfOverlay){ nblend( b->at(x,y), colorCRGB(overlay), amountOfOverlay); };
+    void _nblend565( LedFB<uint16_t> *b, int16_t x, int16_t y, uint16_t overlay, fract8 amountOfOverlay){ b->at(x,y) = color::alphaBlendRGB565( overlay, b->at(x,y), amountOfOverlay); };
+
+    void _nscale8( LedFB<CRGB> *b, int16_t x, int16_t y, uint8_t fadeBy){ b->at(x,y).nscale8(fadeBy); };
+    void _nscale8( LedFB<uint16_t> *b, int16_t x, int16_t y, uint8_t fadeBy);
+
+/*
+    template<typename V, typename X, typename Y, typename C>
+    void _visit_drawPixelCRGB(const V& variant, X x, Y y, C color){
+        std::visit( Overload{ [&x, &y, &color](const auto& variant_item) { _drawPixelCRGB(variant_item, x, y, color); }, }, variant);
+    };
+*/
+
+
+    //  https://stackoverflow.com/questions/18937701/combining-two-16-bits-rgb-colors-with-alpha-blending
+
+};
+
+/**
+ * @brief structure for 2D overlay texture callback object
+ * 
+ */
+//using overlay_cb_t = std::function <void (LedFB_GFX *canvas)>;
+//template <class COLOR_TYPE>
+struct overlay_cb_t {
+    size_t id;
+    std::function <void (LedFB_GFX *canvas)> callback;
 };
 
 
@@ -959,6 +1143,11 @@ bool LedFB<COLOR_TYPE>::resize(uint16_t w, uint16_t h){
     return false;
 }
 
+/**
+ * @brief apply FastLED fadeToBlackBy() func to buffer
+ * 
+ * @param v 
+ */
 template <class COLOR_TYPE>
 void LedFB<COLOR_TYPE>::fade(uint8_t v){
     // if buffer is of CRGB type
@@ -984,8 +1173,8 @@ void LedFB<COLOR_TYPE>::dim(uint8_t v){
 //  ************  DisplayEngine ************
 template <class COLOR_TYPE>
 void DisplayEngine<COLOR_TYPE>::show(){
-  for (auto &s : _stack)
-    s.callback( getCanvas().get() );
+//  for (auto &s : _stack)
+//    s.callback( getCanvas().get() );
 
   // call derivative engine show function
   engine_show();
