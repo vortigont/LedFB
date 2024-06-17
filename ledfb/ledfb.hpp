@@ -12,11 +12,10 @@
 #include <variant>
 #include <functional>
 #include <list>
-#include "w2812-rmt.hpp"
 #include "Arduino_GFX.h"
-#ifdef LEDFB_WITH_HUB75_I2S
-  #include "ESP32-HUB75-MatrixPanel-I2S-DMA.h"
-#endif
+#include "ledstripe.hpp"
+#include "FastLED.h"
+
 
 
 /**
@@ -98,9 +97,6 @@ public:
      * @return CRGB& 
      */
     COLOR_TYPE& at(size_t i);
-
-    // access pixel at coordinates x:y (obsolete)
-    //CRGB& pixel(unsigned x, unsigned y){ return at(x,y); };
 
     /**
      * @brief access CRGB pixel at specified position
@@ -240,47 +236,6 @@ public:
      */
     void show(){ FastLED.show(); }
 };
-
-#ifdef LEDFB_WITH_HUB75_I2S
-/**
- * @brief CRGB buffer backed with esp32 HUB75_i2s_dma lib
- * i2s DMA has it's own DMA buffer to output data, but it's a one-way buffer
- * you can write there, but can't read. So for some applications you are forced to have external buffer for pixel data anyway
- * this class could be a good option to have a bounded buffer
- */
-class HUB75PanelDB : public PixelDataBuffer<CRGB> {
-
-public:
-    // I2S DMA buffer object
-    MatrixPanel_I2S_DMA hub75;
-
-    /**
-     * @brief Construct a new HUB75PanelDB object
-     * will create a new CRGB buffer and bind it with MatrixPanel_I2S_DMA object
-     * 
-     * @param config HUB75_I2S_CFG struct
-     */
-    HUB75PanelDB(const HUB75_I2S_CFG &config) : PixelDataBuffer(config.mx_width*config.mx_height), hub75(config) { hub75.begin(); }
-
-    /**
-     * @brief write data buffer content to HUB75 DMA buffer
-     * 
-     */
-    void show();
-
-    /**
-     * @brief a more faster way to clear buffer+DMA then clear()+show()
-     * 
-     */
-    void wipe(){ clear(); hub75.clearScreen(); };
-
-    /**
-     * @brief HUB75Panel is not supported (yet)
-     */
-    bool resize(size_t s) override { return false; };
-};
-#endif  // LEDFB_WITH_HUB75_I2S
-
 
 
 // coordinate transformation callback prototype
@@ -441,484 +396,13 @@ public:
 
 };
 
-/**
- * @brief Coordinate transformation class, implements a rectangular canvas made from a single piece of a LED Stripe
- * possible orientation and transformations:
- * - V/H mirroring
- * - snake/zigzag rows
- * - transpose rows vs columns, i.e. stripe goes horisontaly (default) or vertically
- * 
- */
-class LedStripe {
-protected:
-    bool _snake;             // matrix type 1:snake( zigzag), 0:parallel
-    bool _vertical;          // strip direction: 0 - horizontal, 1 - vertical
-    bool _vmirror;           // vertical flip
-    bool _hmirror;           // horizontal flip
-
-public:
-    /**
-     * @brief Construct a new Led Stripe object
-     * from a set of tiles and it's orientation
-     * 
-     * @param t_snake - snake/zigzag pixel chaining
-     * @param t_vertical - if true - pixels are chained vertically
-     * @param t_vm - if true - pixels colums are inverted (default pixels goes from up to downward, if true, pixels goes from down to upwards)
-     * @param t_hm - if true - pixels rows are inverted (default pixels goes from left to right, if true, pixels goes from left to right)
-     */
-    LedStripe(bool snake = true, bool _vertical = false, bool vm=false, bool hm=false) : _snake(snake), _vertical(_vertical), _vmirror(vm), _hmirror(hm) {};
-    virtual ~LedStripe() = default;
-
-    // getters
-    bool snake()   const {return _snake;}
-    bool vertical()const {return _vertical;}
-    bool vmirror() const {return _vmirror;}
-    bool hmirror() const {return _hmirror;}
-
-    // setters
-    void snake(bool m) {_snake=m;}
-    void vertical(bool m) {_vertical=m;}
-    void vmirror(bool m){_vmirror=m;}
-    void hmirror(bool m){_hmirror=m;}
-
-    void setLayout(bool snake, bool vert, bool vm, bool hm){ _snake=snake; _vertical=vert; _vmirror=vm; _hmirror=hm;  };
-
-    /**
-     * @brief Transpose pixel 2D coordinates (x,y) into framebuffer's 1D array index
-     * 0's index is at top-left corner, X axis goes to the 'right', Y axis goes 'down'
-     * it calculates array index based on matrix orientation and configuration
-     * no checking performed for supplied coordinates to be out of bound of pixel buffer!
-     * for signed negative arguments the behaviour is undefined
-     * @param x 
-     * @param y 
-     * @return size_t 
-     */
-    virtual size_t transpose(unsigned w, unsigned h, unsigned x, unsigned y) const;
-};
-
-/**
- * @brief Coordinate transformation class, implements tiled rectangular canvas made from chained blocks of a LedStripe objects
- * i.e. a chained matrixes or panels
- * orientation and transformation rules to a chain of tiles could be applied
- * - V/H mirroring
- * - snake/zigzag rows
- * - transpose rows vs columns, i.e. stripe goes horisontaly (default) or vertically
- * NOTE: all tiles in canvas MUST have same dimensions and orientation
- */
-class LedTiles : public LedStripe {
-protected:
-    unsigned _tile_w, _tile_h, _tile_wcnt, _tile_hcnt;  // width, height and num of tiles
-    size_t tiled_transpose(unsigned w, unsigned h, unsigned x, unsigned y) const;
-
-public:
-    LedStripe tileLayout;          // tiles layout, i.e. how tiles are chained
-
-    /**
-     * @brief Construct a new Led Tiles object
-     * from a set of tiles and it's orientation
-     * 
-     * @param tile_width - single tile's width
-     * @param tile_height - single tile's height
-     * @param tile_wcnt - number of tiles in a row
-     * @param tile_hcnt - number of tiles in col
-     * @param t_snake - snake/zigzag chaining
-     * @param t_vertical - if true - tiles are chained vertically
-     * @param t_vm - if true - tile colums are inverted (default tiles goes from up to downward, if true, tiles goes from down to upwards)
-     * @param t_hm - if true - tile rows are inverted (default tiles goes from left to right, if true, tiles goes from left to right)
-     */
-    LedTiles(unsigned tile_width = 16, unsigned tile_height = 16, unsigned tile_wcnt = 1, unsigned tile_hcnt = 1, bool t_snake = false, bool t_vertical = false, bool t_vm=false, bool t_hm=false) :
-        _tile_w(tile_width), _tile_h(tile_height), _tile_wcnt(tile_wcnt), _tile_hcnt(tile_hcnt),
-        tileLayout(t_snake, t_vertical, t_vm, t_hm) {};
-
-    virtual ~LedTiles() = default;
-
-    // getters
-    unsigned canvas_w() const {return _tile_w*_tile_wcnt;}
-    unsigned canvas_h() const {return _tile_h*_tile_hcnt;}
-    unsigned tile_w() const {return _tile_w;}
-    unsigned tile_h() const {return _tile_h;}
-    unsigned tile_wcnt() const {return _tile_wcnt;}
-    unsigned tile_hcnt() const {return _tile_hcnt;}
-
-    // setters
-    void tile_w(unsigned m) { _tile_w=m; }
-    void tile_h(unsigned m) {_tile_h=m;}
-    void tile_wcnt(unsigned m) {_tile_wcnt=m;}
-    void tile_hcnt(unsigned m) {_tile_hcnt=m;}
-
-    // Adjust tiles size and canvas dimensions
-    void setTileDimensions(unsigned w, unsigned h, unsigned wcnt, unsigned hcnt){ _tile_w=w; _tile_h=h; _tile_wcnt=wcnt; _tile_hcnt=hcnt; }
-
-    /**
-     * @brief  transpose x,y coordinates of a pixel in a rectangular canvas
-     * into a 1D vector index mapping to chained tiles of matrixes
-     * 
-     * @param w - full canvas width
-     * @param h - full canvas height
-     * @param x - pixel's x
-     * @param y - pixel's y
-     * @return size_t - pixel's index in a 1D vector
-     */
-    virtual size_t transpose(unsigned w, unsigned h, unsigned x, unsigned y) const override;
-};
-
-
-
-/**
- * @brief abstract overlay engine
- * it works as a renderer for canvas, creating/mixing overlay/back buffer with canvas
- */
-template <class COLOR_TYPE = CRGB>
-class DisplayEngine {
-
-protected:
-    virtual void engine_show() = 0;
-
-public:
-    // virtual d-tor
-    virtual ~DisplayEngine(){};
-
-    /**
-     * @brief Get a reference to canvas buffer
-     * 
-     * @return PixelDataBuffer* 
-     */
-    //virtual std::shared_ptr<PixelDataBuffer<COLOR_TYPE>> getCanvas() = 0;
-
-    //virtual std::shared_ptr<PixelDataBuffer<COLOR_TYPE>> getOverlay() = 0;
-
-    /**
-     * @brief protect canvs buffer from altering by overlay mixing
-     * i.e. canvas buffer is used as a persistent storage
-     * in that case Engine will try to use back buffer for overlay mixing (if implemented) 
-     * @param v - true of false
-     */
-    //void canvasProtect(bool v){ _canvas_protect = v; };
-
-    /**
-     * @brief show buffer content on display
-     * it will draw a canvas content (or render an overlay over it if necessary)
-     * 
-     */
-    void show();
-
-    /**
-     * @brief wipe buffers and draw a blank screen
-     * 
-     */
-    virtual void clear(){};
-
-    /**
-     * @brief change display brightness
-     * if supported by engine
-     * 
-     * @param b - target brightness
-     * @return uint8_t - current brightness level
-     */
-    virtual uint8_t brightness(uint8_t b){ return 0; };
-
-
-    /**
-     * @brief activate double buffer
-     * 
-     * @param active 
-     */
-    virtual void doubleBuffer(bool active) = 0;
-
-    /**
-     * @brief check if doublebuffer is enabled
-     * 
-     * @return true 
-     * @return false 
-     */
-    virtual bool doubleBuffer() const { return false; }
-
-    /**
-     * @brief swap content of front and back buffer
-     * 
-     */
-    virtual void flipBuffer() = 0;
-
-    /**
-     * @brief switch rendering between back and front buffer
-     * 
-     * @return bool - true if acive buffer is front buffer, false if active buffer is back buffer
-     */
-    virtual bool toggleBuffer() = 0;
-
-    virtual std::shared_ptr<PixelDataBuffer<COLOR_TYPE>> getBuffer() = 0;
-
-    virtual std::shared_ptr<PixelDataBuffer<COLOR_TYPE>> getBackBuffer() = 0;
-
-    virtual std::shared_ptr<PixelDataBuffer<COLOR_TYPE>> getActiveBuffer() = 0;
-
-    /**
-     * @brief copy back buffer to front buffer
-     * 
-     */
-    virtual void copyBack2Front() = 0;
-
-    /**
-     * @brief copy front buffer to back buffer
-     * 
-     */
-    virtual void copyFront2Back() = 0;
-
-
-};
-
-
-#ifdef ESP32
-/**
- * @brief Dispaly engine based on ESP32 RMT backend for ws2818 LED strips  
- * 
- * @tparam RGB_ORDER 
- */
-class ESP32RMTDisplayEngine : public DisplayEngine<CRGB> {
-    // which buffer is active - true->canvas, false->backbuff
-    bool _active_buff{true};
-    std::shared_ptr<CLedCDB>  canvas;      // canvas buffer where background data is stored
-    std::shared_ptr<CLedCDB>  backbuff;    // back buffer, where we will mix data with overlay before sending to LEDs
-    //std::weak_ptr<CLedCDB>    overlay;     // overlay buffer weak pointer
-
-    // FastLED controller
-    CLEDController *cled = nullptr;
-    // led strip driver
-    ESP32RMT_WS2812B *wsstrip;
-
-    /**
-     * @brief show buffer content on display
-     * it will draw a canvas content (or render an overlay over it if necessary)
-     * 
-     */
-    void engine_show() override;
-
-public:
-    /**
-     * @brief Construct a new Overlay Engine object
-     * 
-     * @param gpio - gpio to bind ESP32 RMT engine
-     */
-    ESP32RMTDisplayEngine(int gpio, EOrder rgb_order);
-
-    /**
-     * @brief Construct a new Overlay Engine object
-     * 
-     * @param gpio - gpio to bind
-     * @param buffsize - CLED buffer object
-     */
-    ESP32RMTDisplayEngine(int gpio, EOrder rgb_order, std::shared_ptr<CLedCDB> buffer);
-
-    /**
-     * @brief Construct a new Overlay Engine object
-     * 
-     * @param gpio - gpio to bind
-     * @param buffsize - desired LED buffer size
-     */
-    ESP32RMTDisplayEngine(int gpio, EOrder rgb_order, size_t buffsize) : ESP32RMTDisplayEngine(gpio, rgb_order, std::make_shared<CLedCDB>(buffsize)) {};
-
-    /**
-     * @brief take a buffer pointer and attach it to ESP32 RMT engine
-     * 
-     * @param fb - a pointer to CLedC buffer object
-     * @return true - on success
-     * @return false - if canvas has been attached attached already
-     */
-    bool attachCanvas(std::shared_ptr<CLedCDB> &fb);
-
-//    std::shared_ptr<PixelDataBuffer<CRGB>> getCanvas() override { return canvas; }
-
-    /**
-     * @brief Get a pointer to Overlay buffer
-     * Note: consumer MUST release a pointer once overlay operations is no longer needed
-     * 
-     * @return std::shared_ptr<PixelDataBuffer<CRGB>> 
-     */
-//    std::shared_ptr<PixelDataBuffer<CRGB>> getOverlay() override;
-
-    /**
-     * @brief wipe buffers and draw a blank screen
-     * 
-     */
-    void clear() override;
-
-    /**
-     * @brief change display brightness
-     * if supported by engine
-     * 
-     * @param b - target brightness
-     * @return uint8_t - current brightness level
-     */
-    uint8_t brightness(uint8_t b) override;
-
-    /**
-     * @brief activate double buffer
-     * 
-     * @param active 
-     */
-    void doubleBuffer(bool active) override;
-
-    bool doubleBuffer() const override { return backbuff.use_count(); }
-
-    /**
-     * @brief swap content of front and back buffer
-     * 
-     */
-    void flipBuffer() override;
-
-    /**
-     * @brief switch rendering between back and front buffer
-     * 
-     * @return bool - true if acive buffer is front buffer, false if active buffer is back buffer
-     */
-    bool toggleBuffer() override;
-
-    std::shared_ptr<PixelDataBuffer<CRGB>> getBuffer() override { return canvas; }
-
-    std::shared_ptr<PixelDataBuffer<CRGB>> getBackBuffer() override { return backbuff.use_count() ? backbuff : canvas; }
-
-    std::shared_ptr<PixelDataBuffer<CRGB>> getActiveBuffer() override { return _active_buff ? canvas : backbuff; };
-
-    /**
-     * @brief copy back buffer to front buffer
-     * 
-     */
-    void copyBack2Front() override;
-
-    /**
-     * @brief copy front buffer to back buffer
-     * 
-     */
-    void copyFront2Back() override;
-
-private:
-    /**
-     * @brief apply overlay to canvas
-     * pixels with _transparent_color will be skipped
-     */
-    void _ovr_overlap();
-
-    /**
-     * @brief switch active output to a back buffe
-     * used in case if canvas is marked as persistent and should not be changed with overlay data
-     * 
-     */
-    void _switch_to_bb();
-};
-#endif //ifdef ESP32
-
-#ifdef LEDFB_WITH_HUB75_I2S
-/**
- * @brief Display engine based in HUB75 RGB panel
- * 
- */
-class ESP32HUB75_DisplayEngine : public DisplayEngine<CRGB> {
-    MatrixPanel_I2S_DMA hub75;
-    // which buffer is active - true->canvas, false->backbuff
-    bool _active_buff{true};
-    std::shared_ptr<PixelDataBuffer<CRGB>>  canvas;      // canvas buffer where background data is stored
-    std::shared_ptr<PixelDataBuffer<CRGB>>  backbuff;    // back buffer weak pointer
-
-    /**
-     * @brief show buffer content on display
-     * it will draw a canvas content (or render an overlay over it if necessary)
-     * 
-     */
-    void engine_show() override;
-
-public:
-    /**
-     * @brief Construct a new Overlay Engine object
-     * 
-     * @param gpio - gpio to bind ESP32 RMT engine
-     */
-    ESP32HUB75_DisplayEngine(const HUB75_I2S_CFG &config);
-
-    /**
-     * @brief Construct a new Overlay Engine object
-     * 
-     */
-    ESP32HUB75_DisplayEngine(std::shared_ptr<HUB75PanelDB> canvas);
-
-    //std::shared_ptr<PixelDataBuffer<CRGB>> getCanvas() override { return canvas; }
-    //std::shared_ptr<PixelDataBuffer<CRGB>> getCanvas() override { return canvas; }
-
-    /**
-     * @brief Get a pointer to Overlay buffer
-     * Note: consumer MUST release a pointer once overlay operations is no longer needed
-     * 
-     * @return std::shared_ptr<PixelDataBuffer<CRGB>> 
-     */
-    //std::shared_ptr<PixelDataBuffer<CRGB>> getOverlay() override;
-
-    /**
-     * @brief wipe buffers and draw a blank screen
-     * 
-     */
-    void clear() override;
-
-    /**
-     * @brief change display brightness
-     * if supported by engine
-     * 
-     * @param b - target brightness
-     * @return uint8_t - current brightness level
-     */
-    uint8_t brightness(uint8_t b) override { hub75.setBrightness(b); return b; };
-
-    /**
-     * @brief activate double buffer
-     * 
-     * @param active 
-     */
-    void doubleBuffer(bool active) override;
-
-    bool doubleBuffer() const override { return backbuff.use_count(); }
-
-    /**
-     * @brief swap content of front and back buffer
-     * 
-     */
-    void flipBuffer() override;
-
-    /**
-     * @brief switch rendering between back and front buffer
-     * 
-     * @return bool - true if acive buffer is front buffer, false if active buffer is back buffer
-     */
-    bool toggleBuffer() override;
-
-    std::shared_ptr<PixelDataBuffer<CRGB>> getBuffer() override { return canvas; }
-
-    std::shared_ptr<PixelDataBuffer<CRGB>> getBackBuffer() override { return backbuff.use_count() ? backbuff : canvas; }
-
-    std::shared_ptr<PixelDataBuffer<CRGB>> getActiveBuffer() override { return _active_buff ? canvas : backbuff; };
-
-    /**
-     * @brief copy back buffer to front buffer
-     * 
-     */
-    void copyBack2Front() override;
-
-    /**
-     * @brief copy front buffer to back buffer
-     * 
-     */
-    void copyFront2Back() override;
-};
-#endif  // LEDFB_WITH_HUB75_I2S
-
-
-
-
-
 // overload pattern and deduction guide. Lambdas provide call operator
 template<class... Ts> struct Overload : Ts... { using Ts::operator()...; };
 template<class... Ts> Overload(Ts...) -> Overload<Ts...>;
 
 /**
  * @brief GFX class for LedFB
- * it provides Adafruit API for uderlaying buffer with either CRGB or uint16 color container
+ * it provides Arduino_GFX API for uderlaying buffer with either CRGB or uint16_t color container
  * 
  */
 class LedFB_GFX : public Arduino_GFX {
@@ -1053,15 +537,101 @@ protected:
 
 };
 
+
 /**
- * @brief structure for 2D overlay texture callback object
- * 
+ * @brief abstract overlay engine
+ * it works as a renderer for canvas, creating/mixing overlay/back buffer with canvas
  */
-//using overlay_cb_t = std::function <void (LedFB_GFX *canvas)>;
-//template <class COLOR_TYPE>
-struct overlay_cb_t {
-    size_t id;
-    std::function <void (LedFB_GFX *canvas)> callback;
+template <class COLOR_TYPE = CRGB>
+class DisplayEngine {
+
+protected:
+
+    /**
+     * @brief 
+     * 
+     */
+    //std::unique_ptr< LedFB_GFX > gfx;
+
+    /**
+     * @brief pure virtual method implementing rendering buffer content to backend driver
+     * 
+     */
+    virtual void engine_show() = 0;
+
+public:
+    DisplayEngine(){ }
+    // virtual d-tor
+    virtual ~DisplayEngine(){};
+
+    /**
+     * @brief show buffer content on display
+     * it will draw a canvas content and render an overlay stack on top of it if necessary
+     * 
+     */
+    virtual void show();
+
+    /**
+     * @brief wipe buffers and draw a blank screen
+     * 
+     */
+    virtual void clear(){};
+
+    /**
+     * @brief change display brightness
+     * if supported by engine
+     * 
+     * @param b - target brightness
+     * @return uint8_t - current brightness level
+     */
+    virtual uint8_t brightness(uint8_t b){ return 0; };
+
+    /**
+     * @brief activate double buffer
+     * 
+     * @param active 
+     */
+    virtual void doubleBuffer(bool active) = 0;
+
+    /**
+     * @brief check if doublebuffer is enabled
+     * 
+     * @return true 
+     * @return false 
+     */
+    virtual bool doubleBuffer() const { return false; }
+
+    /**
+     * @brief swap content of front and back buffer
+     * 
+     */
+    virtual void flipBuffer() = 0;
+
+    /**
+     * @brief switch rendering between back and front buffer
+     * 
+     * @return bool - true if acive buffer is front buffer, false if active buffer is back buffer
+     */
+    virtual bool toggleBuffer() = 0;
+
+    virtual std::shared_ptr<PixelDataBuffer<COLOR_TYPE>> getBuffer(){ return getActiveBuffer(); };
+
+    virtual std::shared_ptr<PixelDataBuffer<COLOR_TYPE>> getBackBuffer() = 0;
+
+    virtual std::shared_ptr<PixelDataBuffer<COLOR_TYPE>> getActiveBuffer() = 0;
+
+    /**
+     * @brief copy back buffer to front buffer
+     * 
+     */
+    virtual void copyBack2Front() = 0;
+
+    /**
+     * @brief copy front buffer to back buffer
+     * 
+     */
+    virtual void copyFront2Back() = 0;
+
 };
 
 
@@ -1170,12 +740,12 @@ void LedFB<COLOR_TYPE>::dim(uint8_t v){
 
 
 
+//  ****************************************
 //  ************  DisplayEngine ************
+//  ****************************************
+
 template <class COLOR_TYPE>
 void DisplayEngine<COLOR_TYPE>::show(){
-//  for (auto &s : _stack)
-//    s.callback( getCanvas().get() );
-
   // call derivative engine show function
   engine_show();
 }
