@@ -432,6 +432,7 @@ public:
 
     // Arduino GFX overrides
     bool begin(int32_t speed = GFX_NOT_DEFINED) override { return true; };
+
     void writePixelPreclipped(int16_t x, int16_t y, uint16_t color) override;
 
     void writePixelPreclipped(int16_t x, int16_t y, CRGB color);
@@ -440,10 +441,12 @@ public:
     __attribute__((always_inline)) inline void writePixel(int16_t x, int16_t y, uint16_t color){ writePixelPreclipped(x, y, color); };
     __attribute__((always_inline)) inline void writePixel(int16_t x, int16_t y, CRGB color){ writePixelPreclipped(x, y, color); };
 
-    void fillScreen(uint16_t color);// override;
+    // an override
+    void fillScreen(uint16_t color);
 
-    // Adafruit-like methods for CRGB
+    // an overload for CRGB
     void fillScreen(CRGB color);
+
 
 
     // ***** Additional graphics functions *****
@@ -456,32 +459,65 @@ public:
      * @param bitmap byte array with monochrome bitmap
      * @param w Width of bitmap in pixels
      * @param h Height of bitmap in pixels
-     * @param front_color 16-bit 5-6-5 Color to draw image with
+     * @param front_color RGB888 Color to draw image with
      * @param front_alpha image alpha transparency
-     * @param back_color 16-bit 5-6-5 Color to draw background with
+     * @param back_color RGB888 Color to draw background with
      * @param back_alpha image background alpha transparency
-     * @param invert interchange canvas and text
      */
-    void blendBitmap(int16_t x, int16_t y,
+    void drawBitmap_alphablend(int16_t x, int16_t y,
                     const uint8_t* bitmap, int16_t w, int16_t h,
-                    uint16_t front_color, uint8_t front_alpha,
-                    uint16_t back_color = 0, uint8_t back_alpha = 0);
+                    CRGB colorFront, uint8_t alphaFront = 255,
+                    CRGB colorBack = 0, uint8_t alphaBack = 0);
+
+    /// @copydoc drawBitmap_alphablend()
+    /// @param front_color 16-bit 5-6-5 Color to draw image with
+    /// @param back_color 16-bit 5-6-5 Color to draw background with
+    void drawBitmap_alphablend(int16_t x, int16_t y,
+                    const uint8_t* bitmap, int16_t w, int16_t h,
+                    uint16_t colorFront, uint8_t alphaFront = 255,
+                    uint16_t colorBack = 0, uint8_t alphaBack = 0){ drawBitmap_alphablend(x, y, bitmap, w, h, colorCRGB(colorFront), alphaFront, colorCRGB(colorBack), alphaBack); };
 
     /**
-     * @brief draw bitmap, fading background canvas by specified amount
+     * @brief draw bitmap with specific color, fading background canvas by specified amount
      * 
      * @param x Top left corner x coordinate
      * @param y Top left corner y coordinate
      * @param bitmap byte array with monochrome bitmap
      * @param w Width of bitmap in pixels
      * @param h Height of bitmap in pixels
-     * @param front_color 16-bit 5-6-5 Color to draw image with
+     * @param colorFront CRGB Color to draw image with
      * @param fadeBy amount of fade applied to background
      */
-    void fadeBitmap(int16_t x, int16_t y,
+    void drawBitmap_bgfade(int16_t x, int16_t y,
                     const uint8_t* bitmap, int16_t w, int16_t h,
-                    uint16_t front_color, uint8_t fadeBy);
+                    CRGB colorFront, uint8_t fadeBy);
 
+    /// @copydoc drawBitmap_bgfade()
+    /// @param colorFront 16-bit 5-6-5 Color to draw image with
+    void drawBitmap_bgfade(int16_t x, int16_t y,
+                    const uint8_t* bitmap, int16_t w, int16_t h,
+                    uint16_t colorFront, uint8_t fadeBy){ drawBitmap_bgfade(x,y, bitmap, w,h, colorCRGB(colorFront), fadeBy); };
+
+
+    /**
+     * @brief render bitmap over canvas reducing the brightness as thought it were seen through a transparent filter mask with the specified color
+     * it's a reimplementation of FastLED's fadeUsingColor()
+     * 
+     * @param x Top left corner x coordinate
+     * @param y Top left corner y coordinate
+     * @param bitmap byte array with monochrome bitmap
+     * @param w Width of bitmap in pixels
+     * @param h Height of bitmap in pixels
+     * @param colormask color of a mask to apply on bitmap
+     */
+    void drawBitmap_scale_colors(int16_t x, int16_t y,
+                    const uint8_t* bitmap, int16_t w, int16_t h,
+                    CRGB colorFront, CRGB colorBack);
+
+    /// @copydoc drawBitmap_scale_colors
+    void drawBitmap_scale_colors(int16_t x, int16_t y,
+                    const uint8_t* bitmap, int16_t w, int16_t h,
+                    uint16_t colorFront, uint16_t colorBack){ drawBitmap_scale_colors(x,y, bitmap, w,h, colorCRGB(colorFront), colorCRGB(colorBack)); };
 
     // Color conversion
     /**
@@ -490,7 +526,7 @@ public:
      * @param c 
      * @return CRGB 
      */
-    static CRGB colorCRGB(uint16_t c){ return CRGB( ((c>>11 & 0x1f) * 527 + 23) >> 6, ((c>>5 & 0xfc) * 259 + 33) >> 6, ((c&0x1f) * 527 + 23) >> 6); }
+    static CRGB colorCRGB(uint16_t c){ return CRGB( ((c>>11 & 0x1f) * 527 + 23) >> 6, ((c>>5 & 0x3f) * 259 + 33) >> 6, ((c&0x1f) * 527 + 23) >> 6); }
 
     /**
      * @brief Given 24-bit CRGB, return a 'packed' 16-bit color value in '565' RGB format (5 bits red, 6 bits green, 5 bits blue).
@@ -522,8 +558,16 @@ protected:
     void _nblend565( LedFB<CRGB> *b, int16_t x, int16_t y, uint16_t overlay, fract8 amountOfOverlay){ nblend( b->at(x,y), colorCRGB(overlay), amountOfOverlay); };
     void _nblend565( LedFB<uint16_t> *b, int16_t x, int16_t y, uint16_t overlay, fract8 amountOfOverlay){ b->at(x,y) = color::alphaBlendRGB565( overlay, b->at(x,y), amountOfOverlay); };
 
+    // dim/fade a pixel by the amount of 'fadeBy'
     void _nscale8( LedFB<CRGB> *b, int16_t x, int16_t y, uint8_t fadeBy){ b->at(x,y).nscale8(fadeBy); };
     void _nscale8( LedFB<uint16_t> *b, int16_t x, int16_t y, uint8_t fadeBy);
+
+    // scale one color with another, i.e. apply transparent color filer over pixel
+    void _nscale8( LedFB<CRGB> *b, int16_t x, int16_t y, CRGB color){ b->at(x,y).nscale8(color); };
+    void _nscale8( LedFB<CRGB> *b, int16_t x, int16_t y, uint16_t color){ b->at(x,y).nscale8(colorCRGB(color)); };
+    void _nscale8( LedFB<uint16_t> *b, int16_t x, int16_t y, uint16_t color){ b->at(x,y) = color565( colorCRGB(b->at(x,y)).nscale8(colorCRGB(color)) ); };
+    void _nscale8( LedFB<uint16_t> *b, int16_t x, int16_t y, CRGB color){ b->at(x,y) = color565( colorCRGB(b->at(x,y)).nscale8(color) ); };
+
 
 /*
     template<typename V, typename X, typename Y, typename C>
@@ -751,3 +795,7 @@ void DisplayEngine<COLOR_TYPE>::show(){
 }
 
 
+
+//  ****************************************
+//  ************  LedFB_GFX ************
+//  ****************************************

@@ -146,6 +146,7 @@ void LedFB_GFX::drawPixel(int16_t x, int16_t y, CRGB color) {
     std::visit( Overload{ [this, &x, &y, &color](const auto& variant_item) { _drawPixelCRGB(variant_item.get(), x,y,color); }, }, _fb);
 }
 */
+
 void LedFB_GFX::fillScreen(uint16_t color) {
     std::visit(
         Overload {
@@ -208,10 +209,10 @@ void LedFB_GFX::writePixelPreclipped(int16_t x, int16_t y, CRGB color){
   std::visit( Overload{ [this, &x, &y, &color](const auto& variant_item) { _drawPixelCRGB(variant_item.get(), x,y,color); }, }, _fb);
 };
 
-void LedFB_GFX::blendBitmap(int16_t x, int16_t y,
+void LedFB_GFX::drawBitmap_alphablend(int16_t x, int16_t y,
                     const uint8_t* bitmap, int16_t w, int16_t h,
-                    uint16_t front_color, uint8_t front_alpha,
-                    uint16_t back_color, uint8_t back_alpha)
+                    CRGB colorFront, uint8_t alphaFront,
+                    CRGB colorBack, uint8_t alphaBack)
 {
 
   if (!bitmap) return;
@@ -230,12 +231,15 @@ void LedFB_GFX::blendBitmap(int16_t x, int16_t y,
         byte = bitmap[j * byteWidth + i / 8];
 
       int16_t __x = x+i;
-      if (byte & 0x80){
-        std::visit( Overload{ [this, &__x, &y, &front_color, &front_alpha](const auto& variant_item) { _nblend565(variant_item.get(), __x,y,front_color,front_alpha); }, }, _fb);
-      } else {
-        if (back_alpha != 255)  // skip transparent background pixels
-          std::visit( Overload{ [this, &__x, &y, &back_color, &back_alpha](const auto& variant_item) { _nblend565(variant_item.get(), __x,y,back_color,back_alpha); }, }, _fb);
-      }
+      CRGB c( (byte & 0x80) ? colorFront : colorBack );
+      uint8_t alpha((byte & 0x80) ? alphaFront : alphaBack);
+
+      if (alpha == 0)
+        continue;
+      else if (alpha == 255)
+        writePixel(__x, y, c);
+      else
+        std::visit( Overload{ [this, &__x, &y, &c, &alpha](const auto& variant_item) { _nblendCRGB(variant_item.get(), __x, y, c, alpha); }, }, _fb);
 
       //nblend(canvas->at( x+i, y), byte & 0x80 ? CRGB::Red : CRGB::White, byte & 0x80 ? 208 : 5);  // = alphaBlend(fb->at(x+i, y), byte & 0x80 ? CRGB::Blue : CRGB::Gray,  byte & 0x80 ? 5 : 250 );
       //color::alphaBlendRGB565
@@ -244,9 +248,9 @@ void LedFB_GFX::blendBitmap(int16_t x, int16_t y,
   //endWrite();
 }
 
-void LedFB_GFX::fadeBitmap(int16_t x, int16_t y,
+void LedFB_GFX::drawBitmap_bgfade(int16_t x, int16_t y,
                     const uint8_t* bitmap, int16_t w, int16_t h,
-                    uint16_t front_color, uint8_t fadeBy)
+                    CRGB colorFront, uint8_t fadeBy)
 {
   if (!bitmap) return;
   int16_t byteWidth = (w + 7) / 8; // Bitmap scanline pad = whole byte
@@ -265,8 +269,10 @@ void LedFB_GFX::fadeBitmap(int16_t x, int16_t y,
 
       int16_t __x = x+i;
       if (byte & 0x80){
-        writePixel(__x, y, colorCRGB(front_color));
+        // write bitmap pixel with foreground color
+        writePixel(__x, y, colorFront);
       } else {
+        // fade background where bitmap is zero
         std::visit( Overload{ [this, &__x, &y, &fadeBy](const auto& variant_item) { _nscale8(variant_item.get(), __x,y,fadeBy); }, }, _fb);
       }
     }
@@ -274,9 +280,39 @@ void LedFB_GFX::fadeBitmap(int16_t x, int16_t y,
   //endWrite();
 }
 
+
 void LedFB_GFX::_nscale8( LedFB<uint16_t> *b, int16_t x, int16_t y, uint8_t fadeBy){
   CRGB c(colorCRGB(b->at(x,y)));
   c.nscale8(fadeBy);
   b->at(x,y) = color565(c);
 }
 
+void LedFB_GFX::drawBitmap_scale_colors(int16_t x, int16_t y, const uint8_t* bitmap, int16_t w, int16_t h, CRGB colorFront, CRGB colorBack){
+  if (!bitmap) return;
+  int16_t byteWidth = (w + 7) / 8; // Bitmap scanline pad = whole byte
+  uint8_t byte = 0;
+
+  //startWrite();
+  for (int16_t j = 0; j != h; j++, y++)
+  {
+    for (int16_t i = 0; i != w; i++)
+    {
+      if (i & 7)
+        byte <<= 1;
+      else
+        byte = bitmap[j * byteWidth + i / 8];
+
+      int16_t __x = x+i;
+      CRGB c( (byte & 0x80) ? colorFront : colorBack );
+
+      if (c == CRGB::Black)
+        writePixel(__x, y, CRGB::Black);
+      else if (c == CRGB::White)
+        continue;
+      else
+        std::visit( Overload{ [this, &__x, &y, &c](const auto& variant_item) { _nscale8(variant_item.get(), __x,y,c); }, }, _fb);
+    }
+
+  }
+  //endWrite();
+}
