@@ -5,7 +5,6 @@
     Copyright © 2023-2024 Emil Muratov (vortigont)
 */
 
-#pragma once
 #include "ledstripe.hpp"
 
 
