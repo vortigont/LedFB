@@ -21,7 +21,7 @@
     },
     "dependencies":
     [
-        { "owner":"FastLED", "name": "FastLED" }
+        { "owner":"FastLED", "name": "FastLED", "version": "<=3.7.3" }
     ],
     "build": {
         "srcDir": "ledfb",
