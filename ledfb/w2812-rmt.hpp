@@ -52,6 +52,16 @@ https://github.com/FastLED/FastLED/issues/826
 #ifdef ESP32
 
 /*
+    in FastLED versions >3007003 RmtController class constructor arguments has changed,
+    need to provide different one wrappers for newer versions.
+    In version 3007007 RmtController class constructor args has changed again :()
+    so I simply ignore this unstable API
+*/
+#if FASTLED_VERSION <3007007 && FASTLED_VERSION >3007003
+#error FastLED versions between 3.7.4 and 3.7.6 are not supported
+#endif
+
+/*
     Inheritance map:
 
     static CLEDController &addLeds(CLEDController *pLed, struct CRGB *data, int nLedsOrOffset, int nLedsIfOffset = 0);
@@ -173,6 +183,14 @@ public:
 };
 
 
+
+/*
+    in FastLED versions >3007003 RmtController class constructor arguments has changed,
+    need to provide different one wrappers for newer versions
+*/
+
+
+#if FASTLED_VERSION <= 3007003
 /* ESP32 RMT clockless controller
   this is a stripped template of ClocklessController from FastLED library that does not include
   gpio number as template parameter but accept it as a class constructor parameter.
@@ -191,14 +209,11 @@ private:
     //static_assert(FastPin<DATA_PIN>::validpin(), "Invalid pin specified");
 
 public:
-
     ESP32RMT_ClocklessController(uint8_t pin, EOrder rgb_order, unsigned t1, unsigned t2, unsigned t3)
         : CPixelLEDControllerUnordered<ESP32RMT_ClocklessController<XTRA0, FLIP, WAIT_TIME>>(rgb_order),
         mRMTController(pin, t1, t2, t3, FASTLED_RMT_MAX_CHANNELS, FASTLED_RMT_MEM_BLOCKS) {}
 
-    void init()
-    {
-    }
+    void init(){}
 
     virtual uint16_t getMaxRefreshRate() const { return 400; }
 
@@ -266,6 +281,49 @@ protected:
         }
     }
 };
+#endif  // FASTLED_VERSION <= 3007003
+
+
+#if FASTLED_VERSION >= 3007007
+/* ESP32 RMT clockless controller
+  this is a stripped template of ClocklessController from FastLED library that does not include
+  gpio number as template parameter but accept it as a class constructor parameter.
+  This allowing to create an instance with run-time definable gpio and color order
+*/
+template <int XTRA0 = 0, bool FLIP = false, int WAIT_TIME = 5>
+class ESP32RMT_ClocklessController : public CPixelLEDControllerUnordered<ESP32RMT_ClocklessController<XTRA0, FLIP, WAIT_TIME>>
+{
+private:
+
+    // -- The actual controller object for ESP32
+    RmtController mRMTController;
+
+    // -- Verify that the pin is valid
+    // no static checks for run-time defined gpio
+    //static_assert(FastPin<DATA_PIN>::validpin(), "Invalid pin specified");
+
+public:
+    ESP32RMT_ClocklessController(uint8_t pin, EOrder rgb_order, unsigned t1, unsigned t2, unsigned t3)
+        : CPixelLEDControllerUnordered<ESP32RMT_ClocklessController<XTRA0, FLIP, WAIT_TIME>>(rgb_order),
+        mRMTController(pin, t1, t2, t3, FASTLED_RMT_MAX_CHANNELS, FASTLED_RMT_BUILTIN_DRIVER) {}
+
+    void init(){}
+
+    virtual uint16_t getMaxRefreshRate() const { return 400; }
+
+    // -- Show pixels
+    //    This is the main entry point for the controller.
+    template<EOrder RGB_ORDER = RGB>
+    void showPixelsPolicy(PixelController<RGB_ORDER> & pixels)
+    {
+        PixelIterator iterator = pixels.as_iterator(this->getRgbw());
+        mRMTController.showPixels(iterator);
+    }
+
+};
+#endif  // FASTLED_VERSION >= 3007007
+
+
 
 
 // WS2812 - 250ns, 625ns, 375ns
