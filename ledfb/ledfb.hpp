@@ -12,7 +12,7 @@
 #include <variant>
 #include <functional>
 #include <list>
-#include "Arduino_GFX.h"
+#include <canvas/Arduino_Canvas.h> // https://github.com/moononournation/Arduino_GFX
 #include "ledstripe.hpp"
 #include "FastLED.h"
 
@@ -405,7 +405,7 @@ template<class... Ts> Overload(Ts...) -> Overload<Ts...>;
  * it provides Arduino_GFX API for uderlaying buffer with either CRGB or uint16_t color container
  * 
  */
-class LedFB_GFX : public Arduino_GFX {
+class LedFB_GFX : public Arduino_Canvas {
 
 protected:
     // LedFB container variant
@@ -417,20 +417,20 @@ public:
      * 
      * @param buff - a shared pointer to the LedFB object
      */
-    LedFB_GFX(std::shared_ptr< LedFB<CRGB> > buff) : Arduino_GFX(buff->w(), buff->h()), _fb(buff) {}
+    LedFB_GFX(std::shared_ptr< LedFB<CRGB> > buff) : Arduino_Canvas(buff->w(), buff->h(), nullptr), _fb(buff) {}
 
     /**
      * @brief Construct a new LedFB_GFX object from a LedFB<uint16_t> 16 bit color
      * 
      * @param buff - a shared pointer to the LedFB object
      */
-    LedFB_GFX(std::shared_ptr< LedFB<uint16_t> > buff) : Arduino_GFX(buff->w(), buff->h()), _fb(buff) {}
+    LedFB_GFX(std::shared_ptr< LedFB<uint16_t> > buff) : Arduino_Canvas(buff->w(), buff->h(), nullptr), _fb(buff) {}
 
     virtual ~LedFB_GFX() = default;
 
 
 
-    // Arduino GFX overrides
+    // Arduino GFX canvas overrides
     bool begin(int32_t speed = GFX_NOT_DEFINED) override { return true; };
 
     void writePixelPreclipped(int16_t x, int16_t y, uint16_t color) override;
